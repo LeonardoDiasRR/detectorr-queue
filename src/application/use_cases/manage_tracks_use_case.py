@@ -105,8 +105,9 @@ class ManageTracksUseCase:
         
         with self._lock:
             # Obtém tracks da câmera (filtra apenas ativos)
+            # Aumento o timeout para 15 segundos para melhor acúmulo de eventos
             tracks = self._tracks_por_camera.get(camera_id, [])
-            tracks_ativos = [t for t in tracks if t.is_active(max_inactivity_seconds=2.0)]
+            tracks_ativos = [t for t in tracks if t.is_active(max_inactivity_seconds=15.0)]
             
             # Atualiza lista de tracks ativos
             self._tracks_por_camera[camera_id] = tracks_ativos
@@ -176,17 +177,13 @@ class ManageTracksUseCase:
         :param track: Track a verificar.
         :return: True se deve finalizar.
         """
-        # Finaliza se atingiu número máximo de frames
-        event_count = len([e for e in [track.first_event, track.best_event, track.last_event] if e is not None])
-        
-        # Verifica pela contagem total de eventos adicionados (aproximação)
-        # Na prática, o ByteTrack já gerencia a finalização através do max_age
-        # Aqui adicionamos uma verificação extra por segurança
-        if track.last_event is not None:
-            frames_in_track = track.last_event.frame.id.value() - track.first_event.frame.id.value()
-            if frames_in_track >= self.tracking_config.max_frames:
-                self.logger.debug(f"Track {track.id.value()} atingiu max_frames ({frames_in_track})")
-                return True
+        # Finaliza se atingiu número máximo de eventos (não frames)
+        if track.event_count >= self.tracking_config.max_frames:
+            self.logger.debug(
+                f"Track {track.id.value()} atingiu max_frames "
+                f"({track.event_count} >= {self.tracking_config.max_frames})"
+            )
+            return True
         
         return False
     
@@ -204,7 +201,10 @@ class ManageTracksUseCase:
         
         # Verifica se track tem movimento suficiente
         if not track.has_movement:
-            self.logger.debug(f"Track {track.id.value()} descartado: movimento insuficiente")
+            self.logger.debug(
+                f"Track {track.id.value()} descartado: movimento insuficiente "
+                f"({track._movement_count}/{track.event_count} eventos com movimento)"
+            )
             return
         
         # Obtém melhor evento
@@ -216,26 +216,37 @@ class ManageTracksUseCase:
         
         # Enfileira para envio ao FindFace
         if not self.findface_queue.put(best_event, block=False):
-            self.logger.warning(f"Fila do FindFace cheia, evento do track {track.id.value()} descartado")
+            self.logger.warning(
+                f"Fila do FindFace cheia, evento do track {track.id.value()} descartado "
+                f"(tamanho fila: {self.findface_queue.qsize()})"
+            )
         else:
             self.logger.info(
-                f"Track {track.id.value()} finalizado e enviado à fila do FindFace "
-                f"({track.event_count} frames, qualidade: {best_event.face_quality_score.value():.4f})"
+                f"✓ Track {track.id.value()} finalizado e enviado à fila do FindFace | "
+                f"eventos: {track.event_count} | "
+                f"movimento: {track._movement_count} | "
+                f"qualidade: {best_event.face_quality_score.value():.4f}"
             )
     
     def _cleanup_inactive_tracks(self):
-        """Remove tracks inativos de todas as câmeras."""
+        """Finaliza e remove tracks inativos de todas as câmeras."""
         with self._lock:
-            total_removed = 0
+            total_finalized = 0
+            max_inactivity = 15.0  # 15 segundos antes de finalizar
+            
             for camera_id in list(self._tracks_por_camera.keys()):
                 tracks = self._tracks_por_camera[camera_id]
-                tracks_ativos = [t for t in tracks if t.is_active(max_inactivity_seconds=2.0)]
+                tracks_ativos = [t for t in tracks if t.is_active(max_inactivity_seconds=max_inactivity)]
                 
-                removed_count = len(tracks) - len(tracks_ativos)
-                total_removed += removed_count
+                # Tracks inativos devem ser finalizados ANTES de serem removidos
+                tracks_inativos = [t for t in tracks if t not in tracks_ativos]
                 
-                if removed_count > 0:
-                    self.logger.debug(f"Removidos {removed_count} tracks inativos da câmera {camera_id}")
+                for inactive_track in tracks_inativos:
+                    self.logger.debug(
+                        f"Track {inactive_track.id.value()} inativado (sem evento há >{max_inactivity}s), finalizando..."
+                    )
+                    self._finalize_track_internal(inactive_track, camera_id)
+                    total_finalized += 1
                 
                 if tracks_ativos:
                     self._tracks_por_camera[camera_id] = tracks_ativos
@@ -243,6 +254,11 @@ class ManageTracksUseCase:
                     # Remove camera_id se não há tracks ativos
                     del self._tracks_por_camera[camera_id]
                     self.logger.debug(f"Câmera {camera_id} removida (sem tracks ativos)")
+            
+            # Força garbage collection se houve remoções significativas
+            if total_finalized > 0:
+                self.logger.debug(f"Limpeza: {total_finalized} tracks finalizados")
+                gc.collect()
             
             # Força garbage collection se houve remoções significativas
             if total_removed > 0:
