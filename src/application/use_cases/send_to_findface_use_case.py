@@ -120,11 +120,17 @@ class SendToFindfaceUseCase:
             )
             
             self._success_count += 1
+            
+            # Extrai informações do resultado
+            findface_event_id = response.get('id', 'N/A')
+            matches_count = response.get('matches', {}).get('count', 0) if isinstance(response.get('matches'), dict) else 0
+            
             self.logger.info(
-                f"Evento {event.id.value()} enviado com sucesso ao FindFace "
-                f"(câmera: {event.camera_name.value()}, "
-                f"qualidade: {event.face_quality_score:.4f}, "
-                f"response: {response.get('id', 'N/A')})"
+                f"✓ Evento {event.id.value()} enviado ao FindFace | "
+                f"câmera: {event.camera_name.value()} | "
+                f"qualidade: {event.face_quality_score.value():.4f} | "
+                f"findface_id: {findface_event_id} | "
+                f"matches: {matches_count}"
             )
             
         except Exception as e:
