@@ -91,7 +91,8 @@ class SendToFindfaceUseCase:
             # Extrai informações do evento com proteção contra None
             camera_id = event.camera_id.value() if event.camera_id else None
             camera_token = event.camera_token.value() if event.camera_token else None
-            timestamp = event.frame.timestamp.iso_format() if event.frame else None
+            # Timestamp em formato ISO com timezone
+            timestamp = event.frame.timestamp.iso_format_with_tz() if event.frame else None
             bbox = event.bbox.value() if event.bbox else None
             fullframe = event.frame.full_frame.value() if event.frame and event.frame.full_frame else None
             

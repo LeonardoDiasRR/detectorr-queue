@@ -38,6 +38,22 @@ class TimestampVO:
         """
         return self._value.isoformat()
 
+    def iso_format_with_tz(self) -> str:
+        """
+        Retorna o timestamp no formato ISO 8601 com timezone.
+        Se o timestamp não tiver timezone, adiciona UTC.
+
+        :return: String no formato ISO 8601 com timezone (ex: 2025-12-18T20:09:15.123456+00:00).
+        """
+        # Se já tem timezone, retorna direto
+        if self._value.tzinfo is not None:
+            return self._value.isoformat()
+        
+        # Se não tem timezone, assume UTC
+        from datetime import timezone
+        utc_timestamp = self._value.replace(tzinfo=timezone.utc)
+        return utc_timestamp.isoformat()
+
     def timestamp(self) -> float:
         """
         Retorna o timestamp Unix (segundos desde epoch).
