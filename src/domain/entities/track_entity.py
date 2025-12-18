@@ -180,20 +180,27 @@ class Track:
     def _release_event_memory(self, event: Event) -> None:
         """
         Libera a memória associada a um evento que não será mais utilizado.
-        Remove APENAS o full_frame (numpy array grande), mantendo metadados.
+        Zera APENAS o conteúdo do full_frame (numpy array grande), mantendo metadados.
+        
+        IMPORTANTE: Não deleta o atributo _full_frame (FullFrameVO), apenas seu valor interno.
+        O frame é necessário para acessar metadados como camera_id, width, height, etc.
         
         :param event: Evento cujas referências devem ser liberadas.
         """
         try:
-            # NUNCA deleta event._frame, apenas seu conteúdo
-            # O frame é necessário para acessar metadados como camera_id
             if hasattr(event, 'frame') and hasattr(event.frame, '_full_frame'):
-                try:
-                    # Libera apenas o numpy array (full_frame)
-                    # Mantém os metadados do frame (camera_id, timestamp, etc)
-                    del event.frame._full_frame
-                except:
-                    pass  # Se não conseguir, deixa o GC fazer o trabalho
+                full_frame_vo = event.frame._full_frame
+                
+                # Zera o conteúdo interno do FullFrameVO (não deleta o objeto)
+                if hasattr(full_frame_vo, '_ndarray'):
+                    try:
+                        # Substitui numpy array por um array vazio mínimo para manter integridade
+                        # Isso libera a memória do frame original
+                        import numpy as np
+                        full_frame_vo._ndarray = np.zeros((1, 1, 3), dtype=np.uint8)
+                        full_frame_vo._ndarray.flags.writeable = False
+                    except:
+                        pass  # Se não conseguir, deixa o GC fazer o trabalho
         except Exception:
             # Se algo der errado, não interrompe o fluxo
             pass
