@@ -226,9 +226,9 @@ class ManageTracksUseCase:
             del track  # GC
             return
         
-        # Enfileira CÓPIA do melhor evento (SendFindface consumer irá consumir)
-        # IMPORTANTE: Enviamos uma CÓPIA para isolar completamente o evento
-        # O track e seu best_event original serão deletados logo após
+        # Enfileira melhor evento ao FindFace
+        # ISOLAMENTO: O evento no track é uma cópia isolada
+        # Fazemos outra cópia para enviar (isolando completamente do track)
         if not self.findface_queue.put(best_event.copy(), block=False):
             self.logger.warning(
                 f"Fila do FindFace cheia, evento do track {track.id.value()} descartado "

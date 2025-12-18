@@ -104,13 +104,15 @@ class Track:
         """
         Adiciona um evento ao track.
         OTIMIZAÇÃO MÁXIMA: Armazena apenas primeiro, melhor e último evento.
-        Libera memória de eventos descartados (frames grandes não são mais referenciados).
+        
+        ISOLAMENTO: Cada track tem sua própria CÓPIA do evento.
+        Isto previne compartilhamento de memória entre tracks e evita race conditions.
         
         Lógica:
-        - Primeiro evento: armazenado como first, best e last
-        - Eventos subsequentes: atualiza best se qualidade for maior, sempre atualiza last
-        - Calcula movimento entre último evento e novo evento para atualizar has_movement
-        - Remove referências de eventos não utilizados (libera frames da memória)
+        - Primeiro evento: armazenado como cópia (first, best e last)
+        - Eventos subsequentes: cópia armazenada, atualiza best se qualidade for maior
+        - Calcula movimento entre último evento e novo evento
+        - Remove referências de eventos não utilizados (libera memoria)
 
         :param event: Evento a ser adicionado.
         :param min_threshold_pixels: Limiar mínimo em pixels para considerar movimento.
@@ -119,11 +121,15 @@ class Track:
         if not isinstance(event, Event):
             raise TypeError(f"event deve ser Event, recebido: {type(event).__name__}")
         
+        # ISOLAMENTO: Cria cópia isolada do evento para este track
+        # Cada track tem seus próprios objetos, sem compartilhamento
+        event_copy = event.copy()
+        
         # Primeiro evento do track
         if self.is_empty:
-            self._first_event = event
-            self._best_event = event
-            self._last_event = event
+            self._first_event = event_copy
+            self._best_event = event_copy
+            self._last_event = event_copy
             self._event_count = 1
             self._movement_count = 1
             return
@@ -142,7 +148,7 @@ class Track:
             center_y_last = (y1_last + y2_last) / 2.0
             
             # Centro do novo bbox
-            x1_new, y1_new, x2_new, y2_new = event.bbox.value()
+            x1_new, y1_new, x2_new, y2_new = event_copy.bbox.value()
             center_x_new = (x1_new + x2_new) / 2.0
             center_y_new = (y1_new + y2_new) / 2.0
             
@@ -160,11 +166,11 @@ class Track:
         self._event_count += 1
         
         # Atualiza melhor evento se qualidade for superior
-        if self._best_event is None or event.face_quality_score.value() > self._best_event.face_quality_score.value():
-            self._best_event = event
+        if self._best_event is None or event_copy.face_quality_score.value() > self._best_event.face_quality_score.value():
+            self._best_event = event_copy
         
         # Sempre atualiza último evento
-        self._last_event = event
+        self._last_event = event_copy
         
         # ============= LIMPEZA DE MEMÓRIA DE EVENTOS NÃO UTILIZADOS =============
         # Se o evento anterior (last) não é mais utilizado, libera sua memória
