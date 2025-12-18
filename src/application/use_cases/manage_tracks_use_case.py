@@ -205,6 +205,7 @@ class ManageTracksUseCase:
                 f"Track {track.id.value()} descartado: movimento insuficiente "
                 f"({track._movement_count}/{track.event_count} eventos com movimento)"
             )
+            track.cleanup()  # Libera memória antes de descartar
             return
         
         # Obtém melhor evento
@@ -212,6 +213,7 @@ class ManageTracksUseCase:
         
         if best_event is None:
             self.logger.warning(f"Track {track.id.value()} finalizado sem melhor evento")
+            track.cleanup()  # Libera memória antes de descartar
             return
         
         # Enfileira para envio ao FindFace
@@ -227,6 +229,9 @@ class ManageTracksUseCase:
                 f"movimento: {track._movement_count} | "
                 f"qualidade: {best_event.face_quality_score.value():.4f}"
             )
+        
+        # Limpa memória do track após envio
+        track.cleanup()
     
     def _cleanup_inactive_tracks(self):
         """Finaliza e remove tracks inativos de todas as câmeras."""

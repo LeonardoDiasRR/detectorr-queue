@@ -104,11 +104,13 @@ class Track:
         """
         Adiciona um evento ao track.
         OTIMIZAÇÃO MÁXIMA: Armazena apenas primeiro, melhor e último evento.
+        Libera memória de eventos descartados (frames grandes não são mais referenciados).
         
         Lógica:
         - Primeiro evento: armazenado como first, best e last
         - Eventos subsequentes: atualiza best se qualidade for maior, sempre atualiza last
         - Calcula movimento entre último evento e novo evento para atualizar has_movement
+        - Remove referências de eventos não utilizados (libera frames da memória)
 
         :param event: Evento a ser adicionado.
         :param min_threshold_pixels: Limiar mínimo em pixels para considerar movimento.
@@ -125,6 +127,10 @@ class Track:
             self._event_count = 1
             self._movement_count = 1
             return
+        
+        # Guarda referência ao evento anterior para possível limpeza
+        old_last_event = self._last_event
+        old_best_event = self._best_event
         
         # Calcula movimento entre último evento e novo evento
         if self._last_event is not None:
@@ -159,6 +165,56 @@ class Track:
         
         # Sempre atualiza último evento
         self._last_event = event
+        
+        # ============= LIMPEZA DE MEMÓRIA DE EVENTOS NÃO UTILIZADOS =============
+        # Se o evento anterior (last) não é mais utilizado, libera sua memória
+        if old_last_event is not None and old_last_event is not self._first_event and old_last_event is not self._best_event:
+            # O evento anterior não é mais referenciado (não é first, best ou current last)
+            self._release_event_memory(old_last_event)
+        
+        # Se o best_event mudou e o anterior não é mais utilizado, libera sua memória
+        if old_best_event is not None and old_best_event is not self._first_event and old_best_event is not self._last_event:
+            # O antigo best_event não é mais referenciado
+            self._release_event_memory(old_best_event)
+    
+    def _release_event_memory(self, event: Event) -> None:
+        """
+        Libera a memória associada a um evento que não será mais utilizado.
+        Remove referências para forçar garbage collection.
+        
+        :param event: Evento cujas referências devem ser liberadas.
+        """
+        try:
+            # Remove referência do frame para liberar memória
+            # O frame contém full_frame (numpy array grande), que é o maior consumidor de memória
+            if hasattr(event, '_frame'):
+                del event._frame
+            if hasattr(event, 'frame'):
+                # Tenta limpar o atributo do frame se possível
+                try:
+                    if hasattr(event.frame, '_full_frame'):
+                        del event.frame._full_frame
+                except:
+                    pass  # Se não conseguir, deixa o GC fazer o trabalho
+        except Exception:
+            # Se algo der errado, não interrompe o fluxo
+            pass
+
+    def cleanup(self) -> None:
+        """
+        Limpa a memória do track antes de ser descartado.
+        Remove referências desnecessárias para facilitar garbage collection.
+        Mantém apenas o best_event (que será enviado ao FindFace).
+        """
+        # Libera first_event se ele não for o best_event
+        if self._first_event is not None and self._first_event is not self._best_event:
+            self._release_event_memory(self._first_event)
+            self._first_event = None
+        
+        # Libera last_event se ele não for o best_event
+        if self._last_event is not None and self._last_event is not self._best_event:
+            self._release_event_memory(self._last_event)
+            self._last_event = None
 
     def get_best_event(self) -> Optional[Event]:
         """
