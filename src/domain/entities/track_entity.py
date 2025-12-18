@@ -216,6 +216,24 @@ class Track:
             self._release_event_memory(self._last_event)
             self._last_event = None
 
+    def finalize(self) -> None:
+        """
+        Finaliza completamente o track, liberando TODA memória.
+        Chamado após o best_event ser enfileirado ao FindFace.
+        Zera todas as referências internas.
+        """
+        # Primeiro executa cleanup parcial
+        self.cleanup()
+        
+        # Depois zera o best_event também
+        if self._best_event is not None:
+            self._release_event_memory(self._best_event)
+            self._best_event = None
+        
+        # Zera contadores
+        self._event_count = 0
+        self._movement_count = 0
+
     def get_best_event(self) -> Optional[Event]:
         """
         Retorna o evento com o maior score de qualidade facial.

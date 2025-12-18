@@ -190,6 +190,7 @@ class ManageTracksUseCase:
     def _finalize_track_internal(self, track: Track, camera_id: int):
         """
         Finaliza um track internamente (já dentro do lock).
+        Remove completamente da memória após finalização.
         
         :param track: Track a finalizar.
         :param camera_id: ID da câmera.
@@ -206,6 +207,7 @@ class ManageTracksUseCase:
                 f"({track._movement_count}/{track.event_count} eventos com movimento)"
             )
             track.cleanup()  # Libera memória antes de descartar
+            del track  # Deleta referência ao track para GC
             return
         
         # Obtém melhor evento
@@ -214,6 +216,7 @@ class ManageTracksUseCase:
         if best_event is None:
             self.logger.warning(f"Track {track.id.value()} finalizado sem melhor evento")
             track.cleanup()  # Libera memória antes de descartar
+            del track  # Deleta referência ao track para GC
             return
         
         # Enfileira para envio ao FindFace
@@ -230,8 +233,10 @@ class ManageTracksUseCase:
                 f"qualidade: {best_event.face_quality_score.value():.4f}"
             )
         
-        # Limpa memória do track após envio
-        track.cleanup()
+        # Limpa memória do track COMPLETAMENTE após envio
+        # O best_event já foi enfileirado, agora podemos liberar tudo
+        track.finalize()  # Libera TODAS as referências (first, best, last)
+        del track  # Deleta referência ao track para permitir GC imediato
     
     def _cleanup_inactive_tracks(self):
         """Finaliza e remove tracks inativos de todas as câmeras."""
