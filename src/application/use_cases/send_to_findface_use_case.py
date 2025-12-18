@@ -147,10 +147,10 @@ class SendToFindfaceUseCase:
             if fullframe_bytes is not None:
                 del fullframe_bytes
             
-            # IMPORTANTE: Descarta completamente o evento da memória
-            # Cascata de limpeza: Event.cleanup() → Frame = None
-            if event is not None and hasattr(event, 'cleanup'):
-                event.cleanup()
+            # IMPORTANTE: NÃO limpar o evento aqui!
+            # O evento ainda pode estar referenciado no Track.
+            # O cleanup é responsabilidade de Track.cleanup() e Track.finalize(),
+            # chamados após o evento ser enfileirado ao FindFace.
     
     def _log_statistics(self):
         """Loga estatísticas de envio."""

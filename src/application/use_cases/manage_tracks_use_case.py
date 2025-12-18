@@ -192,10 +192,16 @@ class ManageTracksUseCase:
         Finaliza um track internamente (já dentro do lock).
         Remove completamente da memória após finalização.
         
+        Ciclo de vida:
+        1. Verifica se track tem movimento
+        2. Obtém melhor evento
+        3. Enfileira melhor evento ao FindFace (SendFindface consumer irá processar)
+        4. Chama track.finalize() para liberar TODA memória (best_event já foi copiado para fila)
+        
         :param track: Track a finalizar.
         :param camera_id: ID da câmera.
         """
-        # Remove da lista de tracks
+        # Remove da lista de tracks (não será mais acessado)
         tracks = self._tracks_por_camera.get(camera_id, [])
         if track in tracks:
             tracks.remove(track)
@@ -206,20 +212,22 @@ class ManageTracksUseCase:
                 f"Track {track.id.value()} descartado: movimento insuficiente "
                 f"({track._movement_count}/{track.event_count} eventos com movimento)"
             )
-            track.cleanup()  # Libera memória antes de descartar
-            del track  # Deleta referência ao track para GC
+            # Libera TODA memória antes de descartar
+            track.finalize()
+            del track  # GC irá descartar
             return
         
-        # Obtém melhor evento
+        # Obtém melhor evento (ainda não foi zerado)
         best_event = track.best_event
         
         if best_event is None:
             self.logger.warning(f"Track {track.id.value()} finalizado sem melhor evento")
-            track.cleanup()  # Libera memória antes de descartar
-            del track  # Deleta referência ao track para GC
+            track.finalize()  # Libera memória
+            del track  # GC
             return
         
-        # Enfileira para envio ao FindFace
+        # Enfileira CÓPIA do melhor evento (SendFindface consumer irá consumir)
+        # IMPORTANTE: O evento é adicionado à fila, mas ainda está referenciado em track
         if not self.findface_queue.put(best_event, block=False):
             self.logger.warning(
                 f"Fila do FindFace cheia, evento do track {track.id.value()} descartado "
@@ -233,10 +241,11 @@ class ManageTracksUseCase:
                 f"qualidade: {best_event.face_quality_score.value():.4f}"
             )
         
-        # Limpa memória do track COMPLETAMENTE após envio
-        # O best_event já foi enfileirado, agora podemos liberar tudo
-        track.finalize()  # Libera TODAS as referências (first, best, last)
-        del track  # Deleta referência ao track para permitir GC imediato
+        # Libera TODA memória do track (inclusive best_event)
+        # O evento já foi enfileirado ao FindFace, SendFindface consumer irá processar
+        # Quando SendFindface terminar, o evento não será mais referenciado
+        track.finalize()
+        del track  # GC irá descartar imediatamente
     
     def _cleanup_inactive_tracks(self):
         """Finaliza e remove tracks inativos de todas as câmeras."""
