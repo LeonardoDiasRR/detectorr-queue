@@ -1,0 +1,28 @@
+# Requisições HTTP
+requests>=2.31.0
+
+# Supressão de avisos de SSL
+urllib3>=2.0.0
+
+# Configuração
+python-dotenv>=1.0.0
+PyYAML>=6.0
+
+# Detecção de objetos (YOLO)
+ultralytics>=8.0.0
+
+# Processamento de imagem e visão computacional
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Deep Learning (para YOLO e modelos)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Aceleração de inferência (opcional)
+# openvino>=2023.0.0  # Descomente se for usar OpenVINO
+# tensorrt>=8.6.0  # Descomente se for usar TensorRT (NVIDIA)
+
+# Logging e utilidades
+# logging já é built-in do Python

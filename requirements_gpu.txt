@@ -1,0 +1,70 @@
+# Requirements para execução em GPU com CUDA e TensorRT
+# 
+# IMPORTANTE: Antes de instalar, certifique-se de ter:
+# 1. NVIDIA GPU com suporte CUDA
+# 2. CUDA Toolkit 11.8 ou 12.x instalado
+# 3. cuDNN instalado
+# 4. TensorRT instalado (https://developer.nvidia.com/tensorrt)
+#
+# Instalar com: pip install -r requirements_gpu.txt
+
+# PyTorch com suporte CUDA (escolha a versão compatível com seu CUDA)
+# Para CUDA 11.8:
+torch>=2.0.0
+torchvision>=0.15.0
+# Para CUDA 12.1, use:
+# torch>=2.1.0+cu121
+# torchvision>=0.16.0+cu121
+# --extra-index-url https://download.pytorch.org/whl/cu121
+
+# Ultralytics YOLO com suporte completo
+ultralytics>=8.0.0
+
+# OpenCV com suporte GPU (opcional, mas recomendado)
+opencv-python>=4.8.0
+# Para melhor performance, considere compilar opencv-python com CUDA:
+# opencv-contrib-python>=4.8.0
+
+# NumPy e SciPy para operações matemáticas
+numpy>=1.24.0
+scipy>=1.10.0
+
+# TensorRT Python bindings
+# NOTA: TensorRT deve ser instalado separadamente do site da NVIDIA
+# ou via pip se disponível para sua versão CUDA:
+# nvidia-tensorrt>=8.6.0
+# Para instalar TensorRT, visite: https://developer.nvidia.com/tensorrt
+
+# OpenVINO (fallback se TensorRT não estiver disponível)
+openvino>=2023.0.0
+openvino-dev>=2023.0.0
+
+# Dependências do projeto
+PyYAML>=6.0
+requests>=2.31.0
+urllib3>=2.0.0
+python-dotenv>=1.0.0
+tzlocal>=5.0
+
+# Tracking e processamento
+filterpy>=1.4.5
+lap>=0.5.12
+
+# Monitoramento de GPU (opcional)
+nvidia-ml-py>=12.535.133  # Substitui pynvml (deprecated)
+gpustat>=1.1.1  # Para visualizar status da GPU
+
+# Performance profiling (opcional)
+tensorboard>=2.13.0  # Para visualização de métricas
+
+# TensorRT para CUDA 13
+tensorrt-cu13
+
+# (Opcional) Versões compactas ou com despacho
+tensorrt-lean-cu13
+tensorrt-dispatch-cu13
+
+
+onnx>=1.12.0,<2.0.0
+onnxslim>=0.1.71
+onnxruntime-gpu>=1.15.1,<2.0.0

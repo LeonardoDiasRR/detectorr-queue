@@ -1,0 +1,60 @@
+processing:
+  cpu_batch_size: 1
+  gpu_batch_size: 32
+  gpu_devices: [0]  # Lista de GPUs disponíveis
+  
+performance:
+  detection_skip_frames: 10  # CPU: processar apenas 1 a cada 10 frames
+  inference_size: 640  # valores válidos: 1280 ou 640
+
+modelo_deteccao:
+  model_path: "yolo-models/yolov12n-face.pt"
+  confidence_threshold: 0.5
+  iou_threshold: 0.75
+
+modelo_landmark:
+  model_path: "yolo-models/yolov8n-face.pt"
+  confidence_threshold: 0.5
+  iou_threshold: 0.75
+  
+tracking:
+  iou_threshold: 0.3
+  max_age: 30  # frames sem detecção antes de perder track
+  min_hits: 3   # detecções mínimas para confirmar track
+  max_frames: 500  # força encerramento do track após N frames
+  
+filter:
+  min_bbox_width: 30  # pixels
+  min_confidence: 0.5
+  
+track:
+  min_movement_percentage: 0.1
+  min_movement_pixels: 50.0
+
+queues:
+  frame_queue_max_size: 90  # CPU: fila pequena para evitar acúmulo
+  event_queue_max_size: 100
+  findface_queue_max_size: 50
+
+workers:
+  detection_workers: 0  # 0 = auto (min 4, max N CPUs)
+  track_workers: 0  # 0 = auto (min 4, max N/2 CPUs)
+  findface_workers: 0  # 0 = auto (min 4, max N/2 CPUs)
+  timeout: 0.001  # Segundos de espera em filas vazias
+
+logging:
+  level: "DEBUG" # Níveis: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+display:
+  exibir_na_tela: true  # CPU: desabilitar display (consome recursos)
+  window_width: 640
+  window_height: 360
+  bbox_thickness: 2
+  font_scale: 0.6
+  fps_limit: 30
+
+camera:
+  prefix: "TESTE"  # Prefixo para filtrar câmeras do FindFace
+  rtsp_reconnect_delay: 5  # segundos
+  rtsp_max_retries: 3
