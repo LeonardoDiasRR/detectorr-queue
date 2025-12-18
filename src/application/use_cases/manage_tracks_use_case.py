@@ -259,10 +259,6 @@ class ManageTracksUseCase:
             if total_finalized > 0:
                 self.logger.debug(f"Limpeza: {total_finalized} tracks finalizados")
                 gc.collect()
-            
-            # Força garbage collection se houve remoções significativas
-            if total_removed > 0:
-                gc.collect()
     
     def _finalize_all_tracks(self):
         """Finaliza todos os tracks pendentes."""
