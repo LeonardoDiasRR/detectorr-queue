@@ -134,33 +134,54 @@ class Track:
         
         # Calcula movimento entre último evento e novo evento
         if self._last_event is not None:
-            import math
-            
-            # Centro do último bbox
-            x1_last, y1_last, x2_last, y2_last = self._last_event.bbox.value()
-            center_x_last = (x1_last + x2_last) / 2.0
-            center_y_last = (y1_last + y2_last) / 2.0
-            
-            # Centro do novo bbox
-            x1_new, y1_new, x2_new, y2_new = event.bbox.value()
-            center_x_new = (x1_new + x2_new) / 2.0
-            center_y_new = (y1_new + y2_new) / 2.0
-            
-            # Distância euclidiana
-            distance = math.sqrt(
-                (center_x_new - center_x_last) ** 2 + 
-                (center_y_new - center_y_last) ** 2
-            )
-            
-            # Incrementa contador se houve movimento
-            if distance >= min_threshold_pixels:
+            try:
+                import math
+                
+                # Centro do último bbox
+                last_bbox = self._last_event.bbox.value() if self._last_event.bbox is not None else None
+                if last_bbox is None:
+                    # Evento foi zerado, incrementa contador de movimento por segurança
+                    self._movement_count += 1
+                else:
+                    x1_last, y1_last, x2_last, y2_last = last_bbox
+                    center_x_last = (x1_last + x2_last) / 2.0
+                    center_y_last = (y1_last + y2_last) / 2.0
+                    
+                    # Centro do novo bbox
+                    x1_new, y1_new, x2_new, y2_new = event.bbox.value()
+                    center_x_new = (x1_new + x2_new) / 2.0
+                    center_y_new = (y1_new + y2_new) / 2.0
+                    
+                    # Distância euclidiana
+                    distance = math.sqrt(
+                        (center_x_new - center_x_last) ** 2 + 
+                        (center_y_new - center_y_last) ** 2
+                    )
+                    
+                    # Incrementa contador se houve movimento
+                    if distance >= min_threshold_pixels:
+                        self._movement_count += 1
+            except (AttributeError, TypeError):
+                # Se erro ao acessar propriedades, incrementa por segurança
                 self._movement_count += 1
         
         # Eventos subsequentes
         self._event_count += 1
         
-        # Atualiza melhor evento se qualidade for superior (safe check para None)
-        if self._best_event is None or event.face_quality_score.value() > self._best_event.face_quality_score.value():
+        # Atualiza melhor evento se qualidade for superior
+        # PROTEÇÃO: Verifica se best_event foi zerado (race condition com finalize())
+        try:
+            if self._best_event is None:
+                self._best_event = event
+            else:
+                # Safe access: verifica se as propriedades ainda existem
+                new_quality = event.face_quality_score.value() if event.face_quality_score is not None else 0.0
+                best_quality = self._best_event.face_quality_score.value() if self._best_event.face_quality_score is not None else 0.0
+                
+                if new_quality > best_quality:
+                    self._best_event = event
+        except (AttributeError, TypeError):
+            # Se algo der errado acessando propriedades, usa o novo evento
             self._best_event = event
         
         # Sempre atualiza último evento
@@ -170,12 +191,18 @@ class Track:
         # Se o evento anterior (last) não é mais utilizado, libera sua memória
         if old_last_event is not None and old_last_event is not self._first_event and old_last_event is not self._best_event:
             # O evento anterior não é mais referenciado (não é first, best ou current last)
-            self._release_event_memory(old_last_event)
+            try:
+                self._release_event_memory(old_last_event)
+            except (AttributeError, TypeError):
+                pass  # Evento pode já ter sido zerado
         
         # Se o best_event mudou e o anterior não é mais utilizado, libera sua memória
         if old_best_event is not None and old_best_event is not self._first_event and old_best_event is not self._last_event:
             # O antigo best_event não é mais referenciado
-            self._release_event_memory(old_best_event)
+            try:
+                self._release_event_memory(old_best_event)
+            except (AttributeError, TypeError):
+                pass  # Evento pode já ter sido zerado
     
     def _release_event_memory(self, event: Event) -> None:
         """
