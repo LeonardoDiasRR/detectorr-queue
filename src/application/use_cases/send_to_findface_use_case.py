@@ -82,6 +82,8 @@ class SendToFindfaceUseCase:
         
         :param event: Evento a enviar.
         """
+        fullframe_bytes = None  # Inicializa como None para evitar erro no finally
+        
         try:
             # Extrai informações do evento
             camera_id = event.camera_id.value()
@@ -132,8 +134,9 @@ class SendToFindfaceUseCase:
                 exc_info=False
             )
         finally:
-            # Libera memória do evento após envio
-            del fullframe_bytes  # Libera bytes da imagem
+            # Libera memória do evento após envio (verifica se foi criada)
+            if fullframe_bytes is not None:
+                del fullframe_bytes
     
     def _log_statistics(self):
         """Loga estatísticas de envio."""
