@@ -126,6 +126,28 @@ class Event:
             "camera_token": self.camera_token.value()
         }
 
+    def copy(self) -> 'Event':
+        """
+        Cria uma cópia isolada do evento.
+        
+        A cópia tem seu próprio frame (cópia do frame original).
+        Útil para isolar eventos entre camadas de processamento.
+        
+        :return: Nova instância de Event com frame copiado.
+        """
+        # Cria cópia do frame (inclui cópia do numpy array)
+        frame_copy = self._frame.copy()
+        
+        # Cria novo evento com frame copiado (reutiliza value objects - imutáveis)
+        return Event(
+            id=self._id,
+            frame=frame_copy,
+            bbox=self._bbox,
+            confidence=self._confidence,
+            landmarks=self._landmarks,
+            face_quality_score=self._face_quality_score
+        )
+
     def __eq__(self, other) -> bool:
         """Verifica igualdade baseada no ID."""
         if not isinstance(other, Event):

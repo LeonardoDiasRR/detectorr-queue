@@ -240,20 +240,28 @@ class DetectFacesUseCase:
             for detection, landmarks_vo in zip(detection_data, landmarks_list):
                 self._event_counter += 1
                 
+                # ISOLAMENTO: Cria evento com cópia do frame
+                # Cada evento tem seu próprio frame (isolado)
                 event = Event(
                     id=IdVO(self._event_counter),
-                    frame=frame,
+                    frame=frame.copy(),  # Cópia isolada do frame
                     bbox=BboxVO(tuple(detection['bbox'].tolist())),
                     confidence=ConfidenceVO(detection['confidence']),
                     landmarks=landmarks_vo
                 )
                 
-                # Enfileira evento
+                # Enfileira evento (que já tem sua cópia de frame)
                 if not self.event_queue.put(event, block=False):
                     self.logger.warning(f"Fila de eventos cheia, evento {self._event_counter} descartado")
+                    # Limpa evento se não foi enfileirado
+                    event.cleanup()
                 
                 # Armazena para display
                 events_for_display.append(event)
+            
+            # ISOLAMENTO: Deleta o frame original após criar todos os eventos
+            # Cada evento tem sua própria cópia de frame agora
+            self._release_frame_memory(frame)
             
             # Envia para display se ativado
             if self.display_config and self.display_config.exibir_na_tela:

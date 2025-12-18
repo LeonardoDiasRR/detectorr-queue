@@ -147,10 +147,11 @@ class SendToFindfaceUseCase:
             if fullframe_bytes is not None:
                 del fullframe_bytes
             
-            # IMPORTANTE: NÃO limpar o evento aqui!
-            # O evento ainda pode estar referenciado no Track.
-            # O cleanup é responsabilidade de Track.cleanup() e Track.finalize(),
-            # chamados após o evento ser enfileirado ao FindFace.
+            # ISOLAMENTO: Deleta a cópia do evento após processamento
+            # O evento na fila é uma cópia, não há race condition com Track
+            # Track já foi finalizado e deletado
+            if event is not None and hasattr(event, 'cleanup'):
+                event.cleanup()
     
     def _log_statistics(self):
         """Loga estatísticas de envio."""

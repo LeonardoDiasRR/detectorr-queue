@@ -227,8 +227,9 @@ class ManageTracksUseCase:
             return
         
         # Enfileira CÓPIA do melhor evento (SendFindface consumer irá consumir)
-        # IMPORTANTE: O evento é adicionado à fila, mas ainda está referenciado em track
-        if not self.findface_queue.put(best_event, block=False):
+        # IMPORTANTE: Enviamos uma CÓPIA para isolar completamente o evento
+        # O track e seu best_event original serão deletados logo após
+        if not self.findface_queue.put(best_event.copy(), block=False):
             self.logger.warning(
                 f"Fila do FindFace cheia, evento do track {track.id.value()} descartado "
                 f"(tamanho fila: {self.findface_queue.qsize()})"
