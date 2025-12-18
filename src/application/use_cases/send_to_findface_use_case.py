@@ -51,7 +51,7 @@ class SendToFindfaceUseCase:
     def _send_loop(self):
         """Loop principal de envio."""
         send_count = 0
-        gc_interval = 10  # GC a cada 10 eventos enviados
+        gc_interval = 5  # GC a cada 5 eventos enviados (reduzido de 10)
         
         while not self.stop_event.is_set():
             event = self.findface_queue.get(block=True, timeout=self.queue_timeout)
@@ -69,7 +69,7 @@ class SendToFindfaceUseCase:
             finally:
                 self.findface_queue.task_done()
                 
-                # Garbage collection periódico
+                # Garbage collection periódico AGRESSIVO
                 send_count += 1
                 if send_count >= gc_interval:
                     import gc

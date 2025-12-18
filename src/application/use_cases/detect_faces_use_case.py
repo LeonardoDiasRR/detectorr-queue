@@ -96,6 +96,15 @@ class DetectFacesUseCase:
         self.logger.info(f"Iniciando detector de faces na {self.device}")
         
         try:
+            # Otimizações de memória GPU
+            if torch.cuda.is_available():
+                # Desabilita benchmark do cuDNN (economiza memória)
+                torch.backends.cudnn.benchmark = False
+                # Ativa modo determinístico (mais lento mas economiza memória)
+                torch.backends.cudnn.deterministic = True
+                # Libera cache antes de começar
+                torch.cuda.empty_cache()
+            
             # Carrega modelo apenas se não foi fornecido (compartilhado)
             if self.model is None:
                 self._load_model()
@@ -116,7 +125,7 @@ class DetectFacesUseCase:
     def _detection_loop(self):
         """Loop principal de detecção."""
         batch_count = 0
-        gc_interval = 5  # Forçar GC a cada 5 batches (mais agressivo)
+        gc_interval = 3  # Forçar GC a cada 3 batches (MAIS agressivo: era 5)
         
         while not self.stop_event.is_set():
             # Obtém batch de frames
@@ -137,13 +146,15 @@ class DetectFacesUseCase:
                 
                 # Libera referências aos frames para GC
                 frames.clear()
+                del frames
             
-            # Garbage collection periódico
+            # Garbage collection AGRESSIVO e periódico
             batch_count += 1
             if batch_count >= gc_interval:
                 gc.collect()
                 if torch.cuda.is_available():
-                    torch.cuda.empty_cache()  # Libera memória GPU não utilizada
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
                 batch_count = 0
     
     def _process_batch(self, frames: List[Frame]):
@@ -177,9 +188,10 @@ class DetectFacesUseCase:
             images.clear()
             del images
             
-            # Limpa cache GPU se disponível
+            # Limpa cache GPU AGRESSIVAMENTE
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()  # Garante que cache foi liberado
     
     def _process_detections(self, frame: Frame, result):
         """
@@ -253,6 +265,26 @@ class DetectFacesUseCase:
             detection_data.clear()
             del face_crops, detection_data
             del boxes, confidences
+            
+            # Libera frame da memória (não mais necessário)
+            # O frame será removido da referência quando sair desta função
+            if result is not None:
+                del result  # Deleta o resultado do modelo também
+    
+    def _release_frame_memory(self, frame: Frame) -> None:
+        """
+        Libera a memória do frame que não será mais utilizado.
+        
+        :param frame: Frame cujas referências devem ser liberadas.
+        """
+        try:
+            # Tenta liberar o full_frame (maior consumidor de memória)
+            if hasattr(frame, '_full_frame'):
+                del frame._full_frame
+            if hasattr(frame, 'full_frame') and hasattr(frame.full_frame, '_value'):
+                del frame.full_frame._value
+        except Exception:
+            pass  # Se não conseguir, deixa o GC fazer
     
     def _send_to_display(self, frame: Frame, events: List[Event]):
         """
