@@ -141,6 +141,8 @@ class DisplayCameraUseCase:
                 
                 if annotated_frame is None:
                     # Sem frames, aguarda um pouco
+                    if frames_displayed == 0:
+                        self.logger.debug(f"[{self.camera_id}] Aguardando frames no buffer...")
                     time.sleep(0.01)
                     cv2.waitKey(1)  # Necessário para processar eventos da janela
                     continue
@@ -154,6 +156,10 @@ class DisplayCameraUseCase:
                     cv2.waitKey(1)  # Necessário para atualizar a janela
                     
                     frames_displayed += 1
+                    if frames_displayed == 1:
+                        self.logger.info(f"[{self.camera_id}] Primeiro frame exibido com sucesso!")
+                    elif frames_displayed % 100 == 0:
+                        self.logger.debug(f"[{self.camera_id}] {frames_displayed} frames exibidos")
                     last_frame_time = current_time
                     
                 except Exception as e:

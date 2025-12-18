@@ -146,6 +146,8 @@ class DetectFacesUseCase:
         
         :param frames: Lista de frames a processar.
         """
+        self.logger.debug(f"Processando batch de {len(frames)} frames. Display ativado: {self.display_config.exibir_na_tela if self.display_config else 'config None'}, Buffers: {len(self.display_buffers)}")
+        
         # Prepara imagens para inferência
         images = [frame.full_frame.value() for frame in frames]
         
@@ -173,7 +175,8 @@ class DetectFacesUseCase:
         """
         if result.boxes is None or len(result.boxes) == 0:
             # Se display ativado e sem detecções, ainda pode enviar frame vazio
-            if self.display_config.exibir_na_tela:
+            if self.display_config and self.display_config.exibir_na_tela:
+                self.logger.debug(f"Enviando frame vazio para display (sem detecções)")
                 self._send_to_display(frame, [])
             return
         
@@ -226,7 +229,8 @@ class DetectFacesUseCase:
                 events_for_display.append(event)
             
             # Envia para display se ativado
-            if self.display_config.exibir_na_tela:
+            if self.display_config and self.display_config.exibir_na_tela:
+                self.logger.debug(f"Enviando frame com {len(events_for_display)} detecções para display")
                 self._send_to_display(frame, events_for_display)
         finally:
             # Libera memória das estruturas temporárias
@@ -241,10 +245,15 @@ class DetectFacesUseCase:
         :param frame: Frame original
         :param events: Lista de eventos detectados neste frame
         """
-        camera_id = frame.camera_id.value
+        self.logger.debug(f"_send_to_display chamado com {len(events)} eventos")
+        
+        camera_id = str(frame.camera_id.value())  # Converte para string para consistência com buffer keys
+        
+        self.logger.debug(f"camera_id extraído: {camera_id}, buffers disponíveis: {list(self.display_buffers.keys())}")
         
         # Verifica se existe buffer para esta câmera
         if camera_id not in self.display_buffers:
+            self.logger.debug(f"Buffer de display não encontrado para camera_id: {camera_id}")
             return
         
         # Cria AnnotatedFrame
@@ -257,7 +266,11 @@ class DetectFacesUseCase:
         
         # Adiciona ao buffer (não-bloqueante, descarta se cheio)
         try:
-            self.display_buffers[camera_id].put_nowait(annotated_frame)
+            success = self.display_buffers[camera_id].put_nowait(annotated_frame)
+            if success:
+                self.logger.debug(f"Frame enviado ao buffer de display para {camera_id}, eventos: {len(events)}")
+            else:
+                self.logger.warning(f"Falha ao enviar frame ao buffer de display para {camera_id}")
         except Exception as e:
-            # Silencioso - display não deve impactar processamento
+            self.logger.error(f"Erro ao enviar frame ao buffer de display: {e}")
             pass

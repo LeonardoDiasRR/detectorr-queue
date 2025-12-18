@@ -4,8 +4,8 @@ processing:
   gpu_devices: [0]  # Lista de GPUs disponíveis
   
 performance:
-  detection_skip_frames: 10  # CPU: processar apenas 1 a cada 10 frames
-  inference_size: 640  # valores válidos: 1280 ou 640
+  detection_skip_frames: 2  # CPU: processar apenas 1 a cada 10 frames
+  inference_size: 1280  # valores válidos: 1280 ou 640
 
 modelo_deteccao:
   model_path: "yolo-models/yolov12n-face.pt"
@@ -18,10 +18,10 @@ modelo_landmark:
   iou_threshold: 0.75
   
 tracking:
-  iou_threshold: 0.3
-  max_age: 30  # frames sem detecção antes de perder track
-  min_hits: 3   # detecções mínimas para confirmar track
-  max_frames: 500  # força encerramento do track após N frames
+  iou_threshold: 0.05
+  max_age: 60  # frames sem detecção antes de perder track
+  min_hits: 1   # detecções mínimas para confirmar track
+  max_frames: 300  # força encerramento do track após N frames
   
 filter:
   min_bbox_width: 30  # pixels
@@ -32,9 +32,9 @@ track:
   min_movement_pixels: 50.0
 
 queues:
-  frame_queue_max_size: 90  # CPU: fila pequena para evitar acúmulo
-  event_queue_max_size: 100
-  findface_queue_max_size: 50
+  frame_queue_max_size: 256  # CPU: fila pequena para evitar acúmulo
+  event_queue_max_size: 256
+  findface_queue_max_size: 256
 
 workers:
   detection_workers: 0  # 0 = auto (min 4, max N CPUs)

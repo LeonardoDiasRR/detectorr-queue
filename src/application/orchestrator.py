@@ -150,7 +150,7 @@ class ApplicationOrchestrator:
         
         # Cria buffer circular para cada câmera
         for camera in self.cameras:
-            camera_id = camera.camera_id.value()
+            camera_id = str(camera.camera_id.value())  # Converte para string para consistência
             self.display_buffers[camera_id] = CircularBuffer(max_size=5)
         
         self.logger.info(f"  - Display configurado para {len(self.display_buffers)} câmeras")
@@ -297,7 +297,7 @@ class ApplicationOrchestrator:
         self.logger.info("Iniciando workers de display visual...")
         
         for camera in self.cameras:
-            camera_id = camera.camera_id.value()
+            camera_id = str(camera.camera_id.value())  # Converte para string para consistência
             buffer = self.display_buffers[camera_id]
             
             use_case = DisplayCameraUseCase(
