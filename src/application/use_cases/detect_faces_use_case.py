@@ -273,21 +273,23 @@ class DetectFacesUseCase:
     
     def _release_frame_memory(self, frame: Frame) -> None:
         """
-        Libera a memória do frame que não será mais utilizado.
-        Zera APENAS o conteúdo do full_frame (numpy array grande), mantendo metadados.
+        Libera COMPLETAMENTE a memória de um frame após ser processado.
+        
+        IMPORTANTE: Frame foi enfileirado → pode ser descartado completamente.
+        A imagem não será mais necessária após ser salva em eventos/fila.
+        
+        Cascata de limpeza:
+        - Zera full_frame → libera ~7MB de memória numpy
+        - Zera metadados do frame
         
         :param frame: Frame cujas referências devem ser liberadas.
         """
         try:
-            # Substitui o numpy array por um array vazio mínimo
-            # Mantém a estrutura de FullFrameVO intacta para acessar metadados
             if hasattr(frame, '_full_frame') and frame._full_frame is not None:
-                import numpy as np
-                # Array mínimo (1x1x3 = 3 bytes) em lugar do frame original (~7MB)
-                frame._full_frame._ndarray = np.zeros((1, 1, 3), dtype=np.uint8)
-                frame._full_frame._ndarray.flags.writeable = False
+                # Zera o FullFrameVO completamente
+                frame._full_frame = None
         except Exception:
-            pass  # Se não conseguir, deixa o GC fazer
+            pass  # Deixa o GC fazer o trabalho
     
     def _send_to_display(self, frame: Frame, events: List[Event]):
         """

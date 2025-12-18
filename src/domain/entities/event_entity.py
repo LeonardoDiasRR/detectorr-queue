@@ -149,3 +149,34 @@ class Event:
     def __str__(self) -> str:
         """Representação legível do evento."""
         return f"Event {self._id.value()} (Quality: {self._face_quality_score.value():.4f})"
+
+    def cleanup(self) -> None:
+        """
+        Libera completamente a memória do evento e seu frame associado.
+        IMPORTANTE: Chamado quando o evento deixa de ser necessário.
+        
+        Cascata de limpeza:
+        - Zera referências internas do frame
+        - Remove toda a memória do evento
+        
+        Deve ser chamado em:
+        1. Ao descartar evento do track (não é primeiro/melhor/último)
+        2. Após envio ao FindFace (evento foi consumido)
+        3. Durante finalização do track (todos os eventos são removidos)
+        """
+        try:
+            # Zera referências do frame se existir
+            if hasattr(self, '_frame') and self._frame is not None:
+                # Limpa referências do frame
+                if hasattr(self._frame, '_full_frame'):
+                    self._frame._full_frame = None
+                self._frame = None
+            
+            # Zera referências de value objects
+            self._id = None
+            self._bbox = None
+            self._confidence = None
+            self._landmarks = None
+            self._face_quality_score = None
+        except Exception:
+            pass  # Deixa o GC fazer o trabalho se houver erro

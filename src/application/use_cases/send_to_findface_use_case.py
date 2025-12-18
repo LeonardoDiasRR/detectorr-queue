@@ -80,6 +80,9 @@ class SendToFindfaceUseCase:
         """
         Envia um evento ao FindFace.
         
+        IMPORTANTE: Após esta função (com ou sem erro), o evento deve ser
+        completamente descartado da memória via cleanup().
+        
         :param event: Evento a enviar.
         """
         fullframe_bytes = None  # Inicializa como None para evitar erro no finally
@@ -140,9 +143,14 @@ class SendToFindfaceUseCase:
                 exc_info=False
             )
         finally:
-            # Libera memória do evento após envio (verifica se foi criada)
+            # Libera memória do fullframe_bytes se foi criado
             if fullframe_bytes is not None:
                 del fullframe_bytes
+            
+            # IMPORTANTE: Descarta completamente o evento da memória
+            # Cascata de limpeza: Event.cleanup() → Frame = None
+            if event is not None and hasattr(event, 'cleanup'):
+                event.cleanup()
     
     def _log_statistics(self):
         """Loga estatísticas de envio."""

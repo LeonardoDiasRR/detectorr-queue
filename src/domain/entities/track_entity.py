@@ -179,58 +179,58 @@ class Track:
     
     def _release_event_memory(self, event: Event) -> None:
         """
-        Libera a memória associada a um evento que não será mais utilizado.
-        Zera APENAS o conteúdo do full_frame (numpy array grande), mantendo metadados.
+        Libera COMPLETAMENTE a memória de um evento que não será mais utilizado.
         
-        IMPORTANTE: Não deleta o atributo _full_frame (FullFrameVO), apenas seu valor interno.
-        O frame é necessário para acessar metadados como camera_id, width, height, etc.
+        Cascata de limpeza:
+        - Event.cleanup() → zera frame e value objects
+        - Frame é descartado → sua memória é liberada
+        
+        Deve ser chamado para eventos que:
+        1. Não são o primeiro, último ou melhor evento do track
+        2. Foram removidos do track (substituídos por melhor evento)
         
         :param event: Evento cujas referências devem ser liberadas.
         """
         try:
-            if hasattr(event, 'frame') and hasattr(event.frame, '_full_frame'):
-                full_frame_vo = event.frame._full_frame
-                
-                # Zera o conteúdo interno do FullFrameVO (não deleta o objeto)
-                if hasattr(full_frame_vo, '_ndarray'):
-                    try:
-                        # Substitui numpy array por um array vazio mínimo para manter integridade
-                        # Isso libera a memória do frame original
-                        import numpy as np
-                        full_frame_vo._ndarray = np.zeros((1, 1, 3), dtype=np.uint8)
-                        full_frame_vo._ndarray.flags.writeable = False
-                    except:
-                        pass  # Se não conseguir, deixa o GC fazer o trabalho
+            if event is not None and hasattr(event, 'cleanup'):
+                event.cleanup()
         except Exception:
-            # Se algo der errado, não interrompe o fluxo
-            pass
+            pass  # Deixa o GC fazer o trabalho se houver erro
 
     def cleanup(self) -> None:
         """
         Limpa a memória do track antes de ser descartado.
-        Remove referências desnecessárias para facilitar garbage collection.
-        Mantém apenas o best_event (que será enviado ao FindFace).
+        Remove referências desnecessárias mantendo apenas o best_event.
+        
+        IMPORTANTE: Deve ser chamado ANTES de finalizar o track.
+        Mantém o best_event intacto (ele será enviado ao FindFace depois).
         """
-        # Libera first_event se ele não for o best_event
+        # Libera first_event completamente se ele não for o best_event
         if self._first_event is not None and self._first_event is not self._best_event:
             self._release_event_memory(self._first_event)
             self._first_event = None
         
-        # Libera last_event se ele não for o best_event
+        # Libera last_event completamente se ele não for o best_event
         if self._last_event is not None and self._last_event is not self._best_event:
             self._release_event_memory(self._last_event)
             self._last_event = None
 
     def finalize(self) -> None:
         """
-        Finaliza completamente o track, liberando TODA memória.
-        Chamado após o best_event ser enfileirado ao FindFace.
-        Zera todas as referências internas.
+        Finaliza COMPLETAMENTE o track, liberando TODA memória em cascata.
+        
+        Cascata de limpeza:
+        1. cleanup() → libera first_event e last_event (se não forem best)
+        2. Libera best_event
+        3. Zera contadores
+        
+        IMPORTANTE: Chamado APÓS o best_event ser consumido/enviado ao FindFace.
+        O track não pode mais ser utilizado após esta chamada.
         """
         # Primeiro executa cleanup parcial
         self.cleanup()
         
-        # Depois zera o best_event também
+        # Depois libera completamente o best_event também
         if self._best_event is not None:
             self._release_event_memory(self._best_event)
             self._best_event = None
