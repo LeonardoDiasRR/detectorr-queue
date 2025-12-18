@@ -180,20 +180,18 @@ class Track:
     def _release_event_memory(self, event: Event) -> None:
         """
         Libera a memória associada a um evento que não será mais utilizado.
-        Remove referências para forçar garbage collection.
+        Remove APENAS o full_frame (numpy array grande), mantendo metadados.
         
         :param event: Evento cujas referências devem ser liberadas.
         """
         try:
-            # Remove referência do frame para liberar memória
-            # O frame contém full_frame (numpy array grande), que é o maior consumidor de memória
-            if hasattr(event, '_frame'):
-                del event._frame
-            if hasattr(event, 'frame'):
-                # Tenta limpar o atributo do frame se possível
+            # NUNCA deleta event._frame, apenas seu conteúdo
+            # O frame é necessário para acessar metadados como camera_id
+            if hasattr(event, 'frame') and hasattr(event.frame, '_full_frame'):
                 try:
-                    if hasattr(event.frame, '_full_frame'):
-                        del event.frame._full_frame
+                    # Libera apenas o numpy array (full_frame)
+                    # Mantém os metadados do frame (camera_id, timestamp, etc)
+                    del event.frame._full_frame
                 except:
                     pass  # Se não conseguir, deixa o GC fazer o trabalho
         except Exception:
