@@ -10,7 +10,7 @@ from src.domain.entities import Frame
 class FrameQueue:
     """Fila thread-safe para armazenar frames."""
     
-    def __init__(self, maxsize: int = 100):
+    def __init__(self, maxsize: int = 128):
         """
         Inicializa a fila de frames.
         

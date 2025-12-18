@@ -95,9 +95,9 @@ class PerformanceConfig:
 @dataclass
 class QueueConfig:
     """Configuração de filas."""
-    frame_queue_max_size: int = 100
-    event_queue_max_size: int = 1000
-    findface_queue_max_size: int = 100
+    frame_queue_max_size: int = 128
+    event_queue_max_size: int = 128
+    findface_queue_max_size: int = 128
 
 
 @dataclass

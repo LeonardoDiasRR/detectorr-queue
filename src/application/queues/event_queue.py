@@ -10,7 +10,7 @@ from src.domain.entities import Event
 class EventQueue:
     """Fila thread-safe para armazenar eventos de detecção."""
     
-    def __init__(self, maxsize: int = 1000):
+    def __init__(self, maxsize: int = 128):
         """
         Inicializa a fila de eventos.
         

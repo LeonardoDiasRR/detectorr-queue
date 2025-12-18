@@ -10,7 +10,7 @@ from src.domain.entities import Event
 class FindfaceQueue:
     """Fila thread-safe para eventos que serão enviados ao FindFace."""
     
-    def __init__(self, maxsize: int = 100):
+    def __init__(self, maxsize: int = 128):
         """
         Inicializa a fila do FindFace.
         

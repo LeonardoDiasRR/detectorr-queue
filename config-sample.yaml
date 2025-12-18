@@ -32,9 +32,9 @@ track:
   min_movement_pixels: 50.0
 
 queues:
-  frame_queue_max_size: 256  # CPU: fila pequena para evitar acúmulo
-  event_queue_max_size: 256
-  findface_queue_max_size: 256
+  frame_queue_max_size: 128  # CPU: fila pequena para evitar acúmulo
+  event_queue_max_size: 128
+  findface_queue_max_size: 128
 
 workers:
   detection_workers: 0  # 0 = auto (min 4, max N CPUs)
