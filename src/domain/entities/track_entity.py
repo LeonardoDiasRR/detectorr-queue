@@ -166,7 +166,15 @@ class Track:
         self._event_count += 1
         
         # Atualiza melhor evento se qualidade for superior
-        if self._best_event is None or event_copy.face_quality_score.value() > self._best_event.face_quality_score.value():
+        # PROTEÇÃO: Verifica se value objects foram zerados (acesso concorrente)
+        try:
+            event_quality = event_copy.face_quality_score.value() if event_copy.face_quality_score is not None else 0.0
+            best_quality = self._best_event.face_quality_score.value() if self._best_event and self._best_event.face_quality_score is not None else 0.0
+            
+            if self._best_event is None or event_quality > best_quality:
+                self._best_event = event_copy
+        except (AttributeError, TypeError):
+            # Se erro ao acessar propriedades (value objects zerados), usa novo evento
             self._best_event = event_copy
         
         # Sempre atualiza último evento

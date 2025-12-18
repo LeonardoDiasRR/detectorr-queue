@@ -60,8 +60,8 @@ class SendToFindfaceUseCase:
                 continue
             
             self.logger.debug(
-                f"Consumido evento {event.id.value()} da fila do FindFace "
-                f"(câmera: {event.camera_id.value()}, tamanho fila: {self.findface_queue.qsize()})"
+                f"Consumido evento {event.id.value() if event.id else 'UNKNOWN'} da fila do FindFace "
+                f"(câmera: {event.camera_id.value() if event.camera_id else 'UNKNOWN'}, tamanho fila: {self.findface_queue.qsize()})"
             )
             
             try:
@@ -88,12 +88,16 @@ class SendToFindfaceUseCase:
         fullframe_bytes = None  # Inicializa como None para evitar erro no finally
         
         try:
-            # Extrai informações do evento
-            camera_id = event.camera_id.value()
-            camera_token = event.camera_token.value()
-            timestamp = event.frame.timestamp.iso_format()
-            bbox = event.bbox.value()
-            fullframe = event.frame.full_frame.value()
+            # Extrai informações do evento com proteção contra None
+            camera_id = event.camera_id.value() if event.camera_id else None
+            camera_token = event.camera_token.value() if event.camera_token else None
+            timestamp = event.frame.timestamp.iso_format() if event.frame else None
+            bbox = event.bbox.value() if event.bbox else None
+            fullframe = event.frame.full_frame.value() if event.frame and event.frame.full_frame else None
+            
+            # Valida se todos os dados foram extraídos
+            if not all([camera_id, camera_token, timestamp, bbox, fullframe]):
+                raise ValueError(f"Evento incompleto: faltam dados necessários")
             
             # Converte bbox para ROI [left, top, right, bottom]
             roi = [
@@ -124,14 +128,19 @@ class SendToFindfaceUseCase:
             
             self._success_count += 1
             
-            # Extrai informações do resultado
-            findface_event_id = response.get('id', 'N/A')
-            matches_count = response.get('matches', {}).get('count', 0) if isinstance(response.get('matches'), dict) else 0
+            # Extrai informações do resultado com proteção
+            findface_event_id = response.get('id', 'N/A') if response else 'N/A'
+            matches_count = response.get('matches', {}).get('count', 0) if isinstance(response.get('matches') if response else None, dict) else 0
+            
+            # Log com proteção contra None
+            event_id = event.id.value() if event.id else 'UNKNOWN'
+            camera_name = event.camera_name.value() if event.camera_name else 'UNKNOWN'
+            quality = event.face_quality_score.value() if event.face_quality_score else 0.0
             
             self.logger.info(
-                f"✓ Evento {event.id.value()} enviado ao FindFace | "
-                f"câmera: {event.camera_name.value()} | "
-                f"qualidade: {event.face_quality_score.value():.4f} | "
+                f"✓ Evento {event_id} enviado ao FindFace | "
+                f"câmera: {camera_name} | "
+                f"qualidade: {quality:.4f} | "
                 f"findface_id: {findface_event_id} | "
                 f"matches: {matches_count}"
             )

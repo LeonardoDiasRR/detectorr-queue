@@ -128,24 +128,38 @@ class Event:
 
     def copy(self) -> 'Event':
         """
-        Cria uma cópia isolada do evento.
+        Cria uma cópia isolada COMPLETA do evento.
         
-        A cópia tem seu próprio frame (cópia do frame original).
+        Deep copy: 
+        - Frame é copiado (inclui numpy array)
+        - Value objects são recriados (isolamento completo)
+        
         Útil para isolar eventos entre camadas de processamento.
+        Garante que múltiplas threads podem processar cópias sem interferência.
         
-        :return: Nova instância de Event com frame copiado.
+        :return: Nova instância de Event com frame e value objects copiados.
         """
+        from src.domain.value_objects import IdVO, BboxVO, ConfidenceVO, LandmarksVO
+        
         # Cria cópia do frame (inclui cópia do numpy array)
         frame_copy = self._frame.copy()
         
-        # Cria novo evento com frame copiado (reutiliza value objects - imutáveis)
+        # Recria value objects com os mesmos valores (deep copy isolado)
+        # Evita compartilhamento de referências entre cópias
+        id_copy = IdVO(self._id.value())
+        bbox_copy = BboxVO(self._bbox.value())
+        confidence_copy = ConfidenceVO(self._confidence.value())
+        landmarks_copy = LandmarksVO(self._landmarks.to_list() if not self._landmarks.is_empty() else [])
+        quality_copy = ConfidenceVO(self._face_quality_score.value())
+        
+        # Cria novo evento com deep copy completo
         return Event(
-            id=self._id,
+            id=id_copy,
             frame=frame_copy,
-            bbox=self._bbox,
-            confidence=self._confidence,
-            landmarks=self._landmarks,
-            face_quality_score=self._face_quality_score
+            bbox=bbox_copy,
+            confidence=confidence_copy,
+            landmarks=landmarks_copy,
+            face_quality_score=quality_copy
         )
 
     def __eq__(self, other) -> bool:
