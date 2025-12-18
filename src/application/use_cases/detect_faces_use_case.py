@@ -116,7 +116,7 @@ class DetectFacesUseCase:
     def _detection_loop(self):
         """Loop principal de detecção."""
         batch_count = 0
-        gc_interval = 10  # Forçar GC a cada 10 batches
+        gc_interval = 5  # Forçar GC a cada 5 batches (mais agressivo)
         
         while not self.stop_event.is_set():
             # Obtém batch de frames
@@ -127,17 +127,23 @@ class DetectFacesUseCase:
             
             self.logger.debug(f"Consumidos {len(frames)} frames da fila (tamanho atual: {self.frame_queue.qsize()})")
             
-            # Processa batch
-            self._process_batch(frames)
-            
-            # Marca frames como processados
-            for _ in frames:
-                self.frame_queue.task_done()
+            try:
+                # Processa batch
+                self._process_batch(frames)
+            finally:
+                # Marca frames como processados
+                for _ in frames:
+                    self.frame_queue.task_done()
+                
+                # Libera referências aos frames para GC
+                frames.clear()
             
             # Garbage collection periódico
             batch_count += 1
             if batch_count >= gc_interval:
                 gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()  # Libera memória GPU não utilizada
                 batch_count = 0
     
     def _process_batch(self, frames: List[Frame]):
@@ -151,20 +157,29 @@ class DetectFacesUseCase:
         # Prepara imagens para inferência
         images = [frame.full_frame.value() for frame in frames]
         
-        # Executa detecção (tracking será feito manualmente)
-        results = self.model.predict(
-            source=images,
-            conf=self.modelo_deteccao_config.confidence_threshold,
-            iou=self.modelo_deteccao_config.iou_threshold,
-            imgsz=self.performance_config.inference_size,
-            device=self.device,
-            verbose=False,
-            stream=False
-        )
-        
-        # Processa cada frame de resultados
-        for frame, result in zip(frames, results):
-            self._process_detections(frame, result)
+        try:
+            # Executa detecção (tracking será feito manualmente)
+            results = self.model.predict(
+                source=images,
+                conf=self.modelo_deteccao_config.confidence_threshold,
+                iou=self.modelo_deteccao_config.iou_threshold,
+                imgsz=self.performance_config.inference_size,
+                device=self.device,
+                verbose=False,
+                stream=False
+            )
+            
+            # Processa cada frame de resultados
+            for frame, result in zip(frames, results):
+                self._process_detections(frame, result)
+        finally:
+            # Libera memória das imagens
+            images.clear()
+            del images
+            
+            # Limpa cache GPU se disponível
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
     
     def _process_detections(self, frame: Frame, result):
         """
@@ -237,6 +252,7 @@ class DetectFacesUseCase:
             face_crops.clear()
             detection_data.clear()
             del face_crops, detection_data
+            del boxes, confidences
     
     def _send_to_display(self, frame: Frame, events: List[Event]):
         """

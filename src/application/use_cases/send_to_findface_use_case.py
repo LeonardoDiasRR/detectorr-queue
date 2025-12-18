@@ -50,6 +50,9 @@ class SendToFindfaceUseCase:
     
     def _send_loop(self):
         """Loop principal de envio."""
+        send_count = 0
+        gc_interval = 10  # GC a cada 10 eventos enviados
+        
         while not self.stop_event.is_set():
             event = self.findface_queue.get(block=True, timeout=self.queue_timeout)
             
@@ -61,8 +64,17 @@ class SendToFindfaceUseCase:
                 f"(câmera: {event.camera_id.value()}, tamanho fila: {self.findface_queue.qsize()})"
             )
             
-            self._send_event(event)
-            self.findface_queue.task_done()
+            try:
+                self._send_event(event)
+            finally:
+                self.findface_queue.task_done()
+                
+                # Garbage collection periódico
+                send_count += 1
+                if send_count >= gc_interval:
+                    import gc
+                    gc.collect()
+                    send_count = 0
     
     def _send_event(self, event: Event):
         """
@@ -91,6 +103,10 @@ class SendToFindfaceUseCase:
             _, buffer = cv2.imencode('.jpg', fullframe)
             fullframe_bytes = buffer.tobytes()
             
+            # Libera buffer de memória imediatamente
+            del buffer
+            del fullframe  # Libera frame grande da memória
+            
             # Envia ao FindFace usando o SDK
             response = self.findface_client.add_face_event(
                 token=camera_token,
@@ -115,6 +131,9 @@ class SendToFindfaceUseCase:
                 f"Falha ao enviar evento {event.id.value()} ao FindFace: {e}",
                 exc_info=False
             )
+        finally:
+            # Libera memória do evento após envio
+            del fullframe_bytes  # Libera bytes da imagem
     
     def _log_statistics(self):
         """Loga estatísticas de envio."""
