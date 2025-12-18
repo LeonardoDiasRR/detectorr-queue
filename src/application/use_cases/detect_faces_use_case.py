@@ -261,7 +261,7 @@ class DetectFacesUseCase:
             frame=frame.full_frame.value(),
             camera_id=camera_id,
             events=events,
-            timestamp=frame.timestamp.to_timestamp()
+            timestamp=frame.timestamp.timestamp()
         )
         
         # Adiciona ao buffer (não-bloqueante, descarta se cheio)
