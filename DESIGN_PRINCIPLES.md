@@ -15,6 +15,22 @@ event._frame = None  # Estado inválido intermediário
 best_event = None  # Remove referência, GC limpa memória
 ```
 
+### Aplicação em Track
+```python
+# ❌ ERRADO: Events são setados para None enquanto Track existe
+track._best_event = None  # Estado inválido intermediário
+track._first_event = None # Alguém ainda pode tentar acessar!
+track._last_event = None  # Race condition!
+
+# ✅ CORRETO: Events são imutáveis enquanto Track existe
+track._best_event = new_event  # Substitui com novo evento
+# Evento antigo é dereferenciado automaticamente
+# GC limpa quando ninguém mais o referenciar
+
+# Apenas quando Track é descartado:
+track = None  # Remove a referência, GC limpa tudo
+```
+
 ### Benefícios
 - Elimina race conditions
 - Previne estados intermediários inválidos
@@ -270,6 +286,38 @@ event = None                # Remove referência
 # GC libera memória quando todas as referências se forem
 
 # Resultado: NENHUM Estado inválido intermediário! ✅
+```
+
+---
+
+## Exemplo Completo: Track Lifecycle
+
+```python
+# 1. CRIAÇÃO: Track começa vazio ou com primeiro evento
+track = Track(id=id_vo, first_event=first_event)
+# _first_event, _best_event, _last_event referem ao mesmo evento inicial
+
+# 2. EVENTOS ADICIONADOS: Eventos são substituídos, NUNCA setados para None
+track.add_event(event2)   # _last_event = event2 (copie isolado)
+track.add_event(event3)   # _last_event = event3 (novo isolado)
+# evento2 é dereferenciado automaticamente se não for best
+# GC libera quando ninguém referenciar
+
+# 3. BEST_EVENT SUBSTITUÍDO: Melhor evento é atualizado
+track.add_event(event_melhor)  # Qualidade > current best
+# _best_event = event_melhor (evento anterior é dereferenciado)
+# GC libera evento anterior
+
+# 4. CONSUMO FINAL: Best event é copiado e enviado ao FindFace
+best_copy = track.best_event.copy()
+findface_queue.put(best_copy)
+
+# 5. DESCARTE: Track inteiro é removido
+track.finalize()  # Não faz nada, apenas marca lógicamente
+del track         # Remove referência
+# GC libera _first_event, _best_event, _last_event em cascata
+
+# Resultado: Events NUNCA foram setados para None enquanto Track existiu! ✅
 ```
 
 ---

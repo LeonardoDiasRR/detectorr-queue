@@ -193,62 +193,44 @@ class Track:
     
     def _release_event_memory(self, event: Event) -> None:
         """
-        Remove referência a um evento que não será mais utilizado.
+        Marca um evento para não ser mais usado pelo track.
         
-        O evento é descartado apenas removendo a referência a ele.
-        A garbage collection limpará a memória quando não houver mais referências.
+        O evento não é mais referenciado pelo track, permitindo que a garbage collection
+        limpe sua memória quando não houver mais referências em lugar nenhum.
         
         Deve ser chamado para eventos que:
         1. Não são o primeiro, último ou melhor evento do track
         2. Foram removidos do track (substituídos por melhor evento)
         
-        :param event: Evento cuja referência deve ser removida.
+        :param event: Evento que não será mais usado.
         """
-        # Simplesmente removemos a referência
+        # Simplesmente removemos a referência local
         # A garbage collection cuidará da limpeza de memória
         pass
 
     def cleanup(self) -> None:
         """
-        Remove referências aos eventos do track.
-        Permite que a garbage collection limpe a memória.
+        DESCONTINUADO: Este método viola o princípio de imutabilidade.
         
-        IMPORTANTE: Deve ser chamado ANTES de finalizar o track para liberar
-        referências aos eventos que não serão mais utilizados.
-        Mantém o best_event intacto (ele será enviado ao FindFace depois).
+        Eventos não devem ser setados para None enquanto o Track existir.
+        Os eventos permanecerão no Track e serão liberados apenas quando o Track
+        for garbage collected.
         """
-        # Remove referências aos eventos (não best_event)
-        # A garbage collection cuidará de limpá-los da memória
-        if self._first_event is not None and self._first_event is not self._best_event:
-            self._first_event = None
-        
-        if self._last_event is not None and self._last_event is not self._best_event:
-            self._last_event = None
+        # Este método não faz mais nada
+        # Mantido por compatibilidade, mas não remove nenhuma referência
+        pass
 
     def finalize(self) -> None:
         """
-        Finaliza o track e remove suas referências internas.
+        DESCONTINUADO: Este método viola o princípio de imutabilidade.
         
-        Limpeza:
-        1. cleanup() → remove referências a first_event e last_event
-        2. Remove best_event
-        3. Zera contadores
-        
-        A garbage collection cuidará de limpar a memória.
-        
-        IMPORTANTE: Chamado APÓS o best_event ser consumido/enviado ao FindFace.
-        O track não pode mais ser utilizado após esta chamada.
+        Track não deve remover suas próprias referências.
+        Quando o Track deixar de ser referenciado, a garbage collection
+        liberará todos os seus eventos automaticamente.
         """
-        # Primeiro executa cleanup parcial (remove referências a first/last)
-        self.cleanup()
-        
-        # Depois remove best_event também
-        if self._best_event is not None:
-            self._best_event = None
-        
-        # Zera contadores
-        self._event_count = 0
-        self._movement_count = 0
+        # Este método não faz mais nada
+        # Mantido por compatibilidade, mas não remove nenhuma referência
+        pass
 
     def get_best_event(self) -> Optional[Event]:
         """
