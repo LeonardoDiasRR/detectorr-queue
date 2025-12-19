@@ -97,7 +97,7 @@ class SendToFindfaceUseCase:
             fullframe = event.frame.full_frame.value() if event.frame and event.frame.full_frame else None
             
             # Valida se todos os dados foram extraídos
-            if not all([camera_id, camera_token, timestamp, bbox, fullframe]):
+            if camera_id is None or camera_token is None or timestamp is None or bbox is None or fullframe is None:
                 raise ValueError(f"Evento incompleto: faltam dados necessários")
             
             # Converte bbox para ROI [left, top, right, bottom]
