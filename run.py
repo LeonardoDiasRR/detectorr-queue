@@ -23,38 +23,43 @@ sys.path.insert(0, str(project_root))
 from src.infrastructure.config.config_loader import ConfigLoader
 from src.infrastructure.clients import FindfaceMulti
 from src.infrastructure.repositories import CameraRepositoryFindface
+from src.infrastructure.logging import AsyncLogger
+from src.infrastructure.clients import FindfaceMulti, FindfaceMultiAsync
 from src.application.orchestrator import ApplicationOrchestrator
 
 
 def setup_logging(log_config):
     """
-    Configura sistema de logging.
+    Configura sistema de logging assíncrono.
     
     :param log_config: Configurações de logging.
     """
-    logging.basicConfig(
-        level=getattr(logging, log_config.level.upper()),
-        format=log_config.format,
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler("application.log", mode='w', encoding="utf-8")
-        ]
+    # Cria e inicia AsyncLogger
+    async_logger = AsyncLogger(
+        "detectorr-queue",
+        queue_size=10000,
+        level=getattr(logging, log_config.level.upper())
     )
+    async_logger.start()
+    
+    # Retorna logger assíncrono para uso na aplicação
+    return async_logger
 
 
 def main():
     """Função principal da aplicação."""
-    logger = logging.getLogger(__name__)
+    async_logger = None
     orchestrator = None
     findface_client = None
-    
+    findface_async_wrapper = None
     try:
         # Carrega configurações
-        logger.info("Carregando configurações...")
+        print("Carregando configurações...")
         settings = ConfigLoader.load()
         
-        # Configura logging
-        setup_logging(settings.logging)
+        # Configura logging assíncrono
+        async_logger = setup_logging(settings.logging)
+        logger = async_logger.get_logger(__name__)
         logger.info("Configurações carregadas com sucesso")
         
         # Cria cliente FindFace
@@ -67,6 +72,20 @@ def main():
                 uuid=settings.findface.uuid
             )
             logger.info("Conexão com FindFace estabelecida")
+            
+            # Envolve com wrapper assíncrono (pool de conexões)
+            try:
+                findface_async_wrapper = FindfaceMultiAsync(
+                    findface_client,
+                    pool_connections=10,
+                    pool_maxsize=20,
+                    timeout=30.0
+                )
+                logger.info("Pool de conexões httpx ativado para FindFace")
+                # Usa wrapper ao invés do cliente original
+                findface_client = findface_async_wrapper
+            except Exception as e:
+                logger.warning(f"Erro ao criar pool async: {e}. Usando cliente padrão.")
         except Exception as e:
             logger.warning(f"Erro ao conectar ao FindFace: {e}")
             logger.warning("Continuando sem FindFace...")
@@ -109,29 +128,48 @@ def main():
         return 0
         
     except KeyboardInterrupt:
-        logger.info("Interrupção via teclado detectada (CTRL+C)")
+        if async_logger:
+            logger = async_logger.get_logger(__name__)
+            logger.info("Interrupção via teclado detectada (CTRL+C)")
         if orchestrator:
             try:
                 orchestrator.stop()
             except Exception as e:
-                logger.error(f"Erro ao parar orquestrador: {e}", exc_info=True)
+                if async_logger:
+                    logger.error(f"Erro ao parar orquestrador: {e}", exc_info=True)
         return 0
     except Exception as e:
-        logger.error(f"Erro fatal na aplicação: {e}", exc_info=True)
+        if async_logger:
+            logger = async_logger.get_logger(__name__)
+            logger.error(f"Erro fatal na aplicação: {e}", exc_info=True)
         if orchestrator:
             try:
                 orchestrator.stop()
             except Exception as stop_error:
-                logger.error(f"Erro ao parar orquestrador durante tratamento de erro: {stop_error}", exc_info=True)
+                if async_logger:
+                    logger.error(f"Erro ao parar orquestrador durante tratamento de erro: {stop_error}", exc_info=True)
         return 1
     finally:
-        # Faz logout do FindFace
-        if findface_client:
+        # Fecha pool de conexões
+        if findface_async_wrapper:
             try:
-                findface_client.logout()
-                logger.info("Logout do FindFace realizado")
+                findface_async_wrapper.close()
             except:
                 pass
+        
+        # Faz logout do FindFace
+        if findface_client and not isinstance(findface_client, FindfaceMultiAsync):
+            try:
+                findface_client.logout()
+                if async_logger:
+                    logger = async_logger.get_logger(__name__)
+                    logger.info("Logout do FindFace realizado")
+            except:
+                pass
+        
+        # Para AsyncLogger
+        if async_logger:
+            async_logger.stop()
 
 
 if __name__ == "__main__":

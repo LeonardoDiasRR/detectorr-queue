@@ -124,85 +124,86 @@ class ManageTracksUseCase:
                 self.logger.error(f"Erro ao calcular limiares: {e}", exc_info=True)
                 return
             
+            # OTIMIZAÇÃO: Obtém snapshot de tracks FORA do lock
+            # Lock é rápido (apenas dict get)
             with self._lock:
-                try:
-                    # Obtém tracks da câmera (filtra apenas ativos)
-                    # Aumento o timeout para 15 segundos para melhor acúmulo de eventos
-                    tracks = self._tracks_por_camera.get(camera_id, [])
-                    tracks_ativos = [t for t in tracks if t.is_active(max_inactivity_seconds=15.0)]
-                    
-                    # Atualiza lista de tracks ativos
+                tracks = self._tracks_por_camera.get(camera_id, [])
+                # Filtra inativos enquanto tem lock
+                tracks_ativos = [t for t in tracks if t.is_active(max_inactivity_seconds=15.0)]
+                # Atualiza lista
+                if len(tracks_ativos) != len(tracks):
                     self._tracks_por_camera[camera_id] = tracks_ativos
+            
+            # FORA DO LOCK: Faz matching (operação cara)
+            track_matched = None
+            melhor_iou = 0.0
+            melhor_distancia = float('inf')
+            track_por_distancia = None
+            
+            # 1ª estratégia: busca por IoU
+            for track in tracks_ativos:
+                try:
+                    if track.last_event is None:
+                        continue
                     
-                    track_matched = None
-                    melhor_iou = 0.0
-                    melhor_distancia = float('inf')
-                    track_por_distancia = None
+                    iou, distancia = TrackMatchingService.match_evento_com_track(
+                        event.bbox,
+                        track.last_event.bbox,
+                        frame_width,
+                        frame_height
+                    )
                     
-                    # 1ª estratégia: busca por IoU
-                    for track in tracks_ativos:
-                        try:
-                            if track.last_event is None:
-                                continue
-                            
-                            iou, distancia = TrackMatchingService.match_evento_com_track(
-                                event.bbox,
-                                track.last_event.bbox,
-                                frame_width,
-                                frame_height
-                            )
-                            
-                            # Prioriza IoU
-                            if iou >= limiar_iou and iou > melhor_iou:
-                                track_matched = track
-                                melhor_iou = iou
-                            # Guarda melhor distância como fallback
-                            elif distancia <= limiar_distancia and distancia < melhor_distancia:
-                                track_por_distancia = track
-                                melhor_distancia = distancia
-                        except Exception as e:
-                            self.logger.warning(f"Erro ao comparar evento com track: {e}")
-                            continue
-                    
-                    # 2ª estratégia: se não encontrou por IoU, usa distância
-                    if track_matched is None and track_por_distancia is not None:
-                        track_matched = track_por_distancia
-                        self.logger.debug(
-                            f"Evento {event.id.value()} associado ao track {track_matched.id.value()} "
-                            f"por distância ({melhor_distancia:.2f}px)"
-                        )
-                    elif track_matched is not None:
-                        self.logger.debug(
-                            f"Evento {event.id.value()} associado ao track {track_matched.id.value()} "
-                            f"por IoU ({melhor_iou:.3f})"
-                        )
-                    
-                    # Se encontrou match, adiciona evento ao track
-                    if track_matched is not None:
-                        try:
-                            track_matched.add_event(event, min_threshold_pixels=self.track_config.min_movement_pixels)
-                            
-                            # Verifica se deve finalizar
-                            if self._should_finalize_track(track_matched):
-                                self._finalize_track_internal(track_matched, camera_id)
-                        except Exception as e:
-                            self.logger.error(f"Erro ao adicionar evento ao track: {e}", exc_info=True)
-                    else:
-                        # Cria novo track
-                        try:
-                            self._track_id_counter += 1
-                            novo_track = Track(
-                                id=IdVO(self._track_id_counter),
-                                first_event=event,
-                                min_movement_percentage=self.track_config.min_movement_percentage
-                            )
-                            
-                            self._tracks_por_camera.setdefault(camera_id, []).append(novo_track)
-                            self.logger.debug(f"Novo track {self._track_id_counter} criado para câmera {camera_id}")
-                        except Exception as e:
-                            self.logger.error(f"Erro ao criar novo track: {e}", exc_info=True)
+                    # Prioriza IoU
+                    if iou >= limiar_iou and iou > melhor_iou:
+                        track_matched = track
+                        melhor_iou = iou
+                    # Guarda melhor distância como fallback
+                    elif distancia <= limiar_distancia and distancia < melhor_distancia:
+                        track_por_distancia = track
+                        melhor_distancia = distancia
                 except Exception as e:
-                    self.logger.error(f"Erro dentro de lock ao processar evento: {e}", exc_info=True)
+                    self.logger.warning(f"Erro ao comparar evento com track: {e}")
+                    continue
+            
+            # 2ª estratégia: se não encontrou por IoU, usa distância
+            if track_matched is None and track_por_distancia is not None:
+                track_matched = track_por_distancia
+                self.logger.debug(
+                    f"Evento {event.id.value()} associado ao track {track_matched.id.value()} "
+                    f"por distância ({melhor_distancia:.2f}px)"
+                )
+            elif track_matched is not None:
+                self.logger.debug(
+                    f"Evento {event.id.value()} associado ao track {track_matched.id.value()} "
+                    f"por IoU ({melhor_iou:.3f})"
+                )
+            
+            # BACK DENTRO DO LOCK: Apenas para atualizar estruturas
+            with self._lock:
+                # Se encontrou match, adiciona evento ao track
+                if track_matched is not None:
+                    try:
+                        track_matched.add_event(event, min_threshold_pixels=self.track_config.min_movement_pixels)
+                        
+                        # Verifica se deve finalizar
+                        if self._should_finalize_track(track_matched):
+                            self._finalize_track_internal(track_matched, camera_id)
+                    except Exception as e:
+                        self.logger.error(f"Erro ao adicionar evento ao track: {e}", exc_info=True)
+                else:
+                    # Cria novo track
+                    try:
+                        self._track_id_counter += 1
+                        novo_track = Track(
+                            id=IdVO(self._track_id_counter),
+                            first_event=event,
+                            min_movement_percentage=self.track_config.min_movement_percentage
+                        )
+                        
+                        self._tracks_por_camera.setdefault(camera_id, []).append(novo_track)
+                        self.logger.debug(f"Novo track {self._track_id_counter} criado para câmera {camera_id}")
+                    except Exception as e:
+                        self.logger.error(f"Erro ao criar novo track: {e}", exc_info=True)
         except Exception as e:
             self.logger.error(f"Erro ao processar evento: {e}", exc_info=True)
     
