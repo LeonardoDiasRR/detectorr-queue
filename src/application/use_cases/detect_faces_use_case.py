@@ -155,17 +155,10 @@ class DetectFacesUseCase:
                     frames.clear()
                     del frames
                 
-                # Garbage collection AGRESSIVO e periódico
-                batch_count += 1
-                if batch_count >= gc_interval:
-                    try:
-                        gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                            torch.cuda.synchronize()
-                        batch_count = 0
-                    except Exception as e:
-                        self.logger.warning(f"Erro ao executar garbage collection: {e}")
+                # REMOVIDO: gc.collect() periódico
+                # A garbage collection é agora executada em uma thread separada
+                # pelo MemoryManager. Isto não bloqueia o loop de detecção.
+                # batch_count (esta variável pode ser removida ou reutilizada para outra coisa)
             except Exception as e:
                 self.logger.error(f"Erro no loop principal de detecção: {e}", exc_info=True)
                 # Continua executando mesmo com erro

@@ -331,13 +331,11 @@ class ManageTracksUseCase:
                     except Exception as e:
                         self.logger.error(f"Erro ao limpar tracks da câmera {camera_id}: {e}", exc_info=True)
                 
-                # Força garbage collection se houve remoções significativas
+                # REMOVIDO: gc.collect() periódico
+                # A garbage collection é agora executada em uma thread separada
+                # pelo MemoryManager. Isto não bloqueia o loop de gerenciamento.
                 if total_finalized > 0:
-                    try:
-                        self.logger.debug(f"Limpeza: {total_finalized} tracks finalizados")
-                        gc.collect()
-                    except Exception as e:
-                        self.logger.warning(f"Erro ao executar garbage collection: {e}")
+                    self.logger.debug(f"Limpeza: {total_finalized} tracks finalizados")
         except Exception as e:
             self.logger.error(f"Erro ao limpar tracks inativos: {e}", exc_info=True)
     

@@ -13,6 +13,7 @@ from src.domain.entities import Camera
 from src.domain.repositories import CameraRepository
 from src.infrastructure.clients import FindfaceMulti
 from src.infrastructure.config.settings import AppSettings
+from src.infrastructure.memory import MemoryManager
 from src.application.queues import FrameQueue, EventQueue, FindfaceQueue
 from src.application.use_cases import (
     StreamCameraUseCase,
@@ -49,6 +50,9 @@ class ApplicationOrchestrator:
         
         # Evento para parada graceful
         self.stop_event = ThreadEvent()
+        
+        # Gerenciador de memória (GC assíncrono)
+        self.memory_manager = MemoryManager(gc_interval_seconds=5.0)
         
         # Filas
         self.frame_queue = FrameQueue(maxsize=settings.queues.frame_queue_max_size)
@@ -91,6 +95,9 @@ class ApplicationOrchestrator:
         self.logger.info("=" * 80)
         
         try:
+            # Inicia gerenciador de memória (GC assíncrono)
+            self.memory_manager.start()
+            
             # Carrega câmeras ativas
             self._load_cameras()
             
@@ -435,6 +442,9 @@ class ApplicationOrchestrator:
         
         # Aguarda threads
         self.wait()
+        
+        # Para o gerenciador de memória
+        self.memory_manager.stop()
         
         self.logger.info("=" * 80)
         self.logger.info("APLICAÇÃO FINALIZADA")

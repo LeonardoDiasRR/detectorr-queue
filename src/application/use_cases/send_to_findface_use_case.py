@@ -75,15 +75,9 @@ class SendToFindfaceUseCase:
                     except Exception as e:
                         self.logger.warning(f"Erro ao marcar task_done: {e}")
                     
-                    # Garbage collection periódico AGRESSIVO
-                    send_count += 1
-                    if send_count >= gc_interval:
-                        try:
-                            import gc
-                            gc.collect()
-                            send_count = 0
-                        except Exception as e:
-                            self.logger.warning(f"Erro ao executar garbage collection: {e}")
+                    # REMOVIDO: gc.collect() periódico
+                    # A garbage collection é agora executada em uma thread separada
+                    # pelo MemoryManager. Isto não bloqueia o loop de envio.
             except Exception as e:
                 self.logger.error(f"Erro no loop de envio ao FindFace: {e}", exc_info=True)
     
