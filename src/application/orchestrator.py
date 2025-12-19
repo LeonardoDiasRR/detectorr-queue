@@ -160,162 +160,248 @@ class ApplicationOrchestrator:
         num_workers = self.settings.workers.detection_workers
         self.logger.info(f"Iniciando {num_workers} workers de detecção...")
         
-        import torch
-        from ultralytics import YOLO
-        
-        cuda_available = torch.cuda.is_available()
-        num_gpus = torch.cuda.device_count() if cuda_available else 0
-        
-        # Determina device principal
-        device = "cuda:0" if cuda_available else "cpu"
-        
-        # Carrega modelos UMA VEZ (compartilhados entre todos os workers)
-        self.logger.info(f"Carregando modelo de detecção: {self.settings.modelo_deteccao.model_path}")
-        detection_model = YOLO(self.settings.modelo_deteccao.model_path)
-        detection_model.to(device)
-        self.logger.info(f"Modelo de detecção carregado no {device}")
-        
-        # WARMUP: Inicializa callbacks do Ultralytics antes de threading
-        # Previne ImportError de circular import em ambiente multi-thread
-        import numpy as np
-        dummy_image = np.zeros((640, 640, 3), dtype=np.uint8)
-        self.logger.info("Aquecendo modelo de detecção (warmup)...")
-        _ = detection_model.predict(dummy_image, verbose=False, imgsz=self.settings.performance.inference_size)
-        self.logger.info("Warmup concluído")
-        
-        # Carrega modelo de landmarks UMA VEZ
-        from src.application.services import LandmarkDetectionService
-        self.logger.info(f"Carregando modelo de landmarks: {self.settings.modelo_landmark.model_path}")
-        landmark_service = LandmarkDetectionService(
-            modelo_landmark_config=self.settings.modelo_landmark,
-            device=device
-        )
-        self.logger.info(f"Modelo de landmarks carregado no {device}")
-        
-        # Cria workers que compartilham os mesmos modelos
-        for worker_id in range(num_workers):
-            use_case = DetectFacesUseCase(
-                frame_queue=self.frame_queue,
-                event_queue=self.event_queue,
-                modelo_deteccao_config=self.settings.modelo_deteccao,
-                tracking_config=self.settings.tracking,
-                processing_config=self.settings.processing,
-                performance_config=self.settings.performance,
-                filter_config=self.settings.filter,
-                gpu_id=worker_id,  # ID do worker
-                landmark_service=landmark_service,  # Compartilhado
-                stop_event=self.stop_event,
-                display_config=self.settings.display,
-                display_buffers=self.display_buffers,
-                shared_model=detection_model,  # Modelo compartilhado
-                queue_timeout=self.settings.workers.timeout
-            )
+        try:
+            import torch
+            from ultralytics import YOLO
             
-            thread = threading.Thread(
-                target=use_case.execute,
-                name=f"Detector{worker_id}",
-                daemon=False
-            )
-            thread.start()
-            self.threads.append(thread)
+            cuda_available = torch.cuda.is_available()
+            num_gpus = torch.cuda.device_count() if cuda_available else 0
             
-        self.logger.info(f"  - {num_workers} workers de detecção iniciados")
+            # Determina device principal
+            device = "cuda:0" if cuda_available else "cpu"
+            
+            # Carrega modelos UMA VEZ (compartilhados entre todos os workers)
+            try:
+                self.logger.info(f"Carregando modelo de detecção: {self.settings.modelo_deteccao.model_path}")
+                detection_model = YOLO(self.settings.modelo_deteccao.model_path)
+                detection_model.to(device)
+                self.logger.info(f"Modelo de detecção carregado no {device}")
+            except Exception as e:
+                self.logger.error(f"Erro ao carregar modelo de detecção: {e}", exc_info=True)
+                raise
+            
+            # WARMUP: Inicializa callbacks do Ultralytics antes de threading
+            # Previne ImportError de circular import em ambiente multi-thread
+            try:
+                import numpy as np
+                dummy_image = np.zeros((640, 640, 3), dtype=np.uint8)
+                self.logger.info("Aquecendo modelo de detecção (warmup)...")
+                _ = detection_model.predict(dummy_image, verbose=False, imgsz=self.settings.performance.inference_size)
+                self.logger.info("Warmup concluído")
+            except Exception as e:
+                self.logger.warning(f"Erro no warmup do modelo: {e}")
+            
+            # Carrega modelo de landmarks UMA VEZ
+            landmark_service = None
+            try:
+                from src.application.services import LandmarkDetectionService
+                self.logger.info(f"Carregando modelo de landmarks: {self.settings.modelo_landmark.model_path}")
+                landmark_service = LandmarkDetectionService(
+                    modelo_landmark_config=self.settings.modelo_landmark,
+                    device=device
+                )
+                self.logger.info(f"Modelo de landmarks carregado no {device}")
+            except Exception as e:
+                self.logger.warning(f"Erro ao carregar modelo de landmarks: {e}")
+                landmark_service = None
+            
+            # Cria workers que compartilham os mesmos modelos
+            for worker_id in range(num_workers):
+                try:
+                    use_case = DetectFacesUseCase(
+                        frame_queue=self.frame_queue,
+                        event_queue=self.event_queue,
+                        modelo_deteccao_config=self.settings.modelo_deteccao,
+                        tracking_config=self.settings.tracking,
+                        processing_config=self.settings.processing,
+                        performance_config=self.settings.performance,
+                        filter_config=self.settings.filter,
+                        gpu_id=worker_id,  # ID do worker
+                        landmark_service=landmark_service,  # Compartilhado
+                        stop_event=self.stop_event,
+                        display_config=self.settings.display,
+                        display_buffers=self.display_buffers,
+                        shared_model=detection_model,  # Modelo compartilhado
+                        queue_timeout=self.settings.workers.timeout
+                    )
+                    
+                    def worker_wrapper(use_case, worker_id):
+                        """Wrapper para capturar exceções em workers de detecção."""
+                        try:
+                            use_case.execute()
+                        except Exception as e:
+                            self.logger.error(f"Erro no worker de detecção {worker_id}: {e}", exc_info=True)
+                    
+                    thread = threading.Thread(
+                        target=worker_wrapper,
+                        args=(use_case, worker_id),
+                        name=f"Detector{worker_id}",
+                        daemon=False
+                    )
+                    thread.start()
+                    self.threads.append(thread)
+                except Exception as e:
+                    self.logger.error(f"Erro ao criar worker de detecção {worker_id}: {e}", exc_info=True)
+            
+            self.logger.info(f"  - {num_workers} workers de detecção iniciados")
+        except Exception as e:
+            self.logger.error(f"Erro ao iniciar workers de detecção: {e}", exc_info=True)
+            raise
     
     def _start_track_manager(self):
         """Inicia gerenciadores de tracks."""
         num_workers = self.settings.workers.track_workers
         self.logger.info(f"Iniciando {num_workers} gerenciadores de tracks...")
         
-        for i in range(num_workers):
-            use_case = ManageTracksUseCase(
-                event_queue=self.event_queue,
-                findface_queue=self.findface_queue,
-                tracking_config=self.settings.tracking,
-                track_config=self.settings.track,
-                stop_event=self.stop_event,
-                queue_timeout=self.settings.workers.timeout
-            )
+        try:
+            for i in range(num_workers):
+                try:
+                    use_case = ManageTracksUseCase(
+                        event_queue=self.event_queue,
+                        findface_queue=self.findface_queue,
+                        tracking_config=self.settings.tracking,
+                        track_config=self.settings.track,
+                        stop_event=self.stop_event,
+                        queue_timeout=self.settings.workers.timeout
+                    )
+                    
+                    def worker_wrapper(use_case, worker_id):
+                        """Wrapper para capturar exceções em workers de track."""
+                        try:
+                            use_case.execute()
+                        except Exception as e:
+                            self.logger.error(f"Erro no gerenciador de tracks {worker_id}: {e}", exc_info=True)
+                    
+                    thread = threading.Thread(
+                        target=worker_wrapper,
+                        args=(use_case, i),
+                        name=f"TrackManager{i}",
+                        daemon=False
+                    )
+                    thread.start()
+                    self.threads.append(thread)
+                except Exception as e:
+                    self.logger.error(f"Erro ao criar gerenciador de tracks {i}: {e}", exc_info=True)
             
-            thread = threading.Thread(
-                target=use_case.execute,
-                name=f"TrackManager{i}",
-                daemon=False
-            )
-            thread.start()
-            self.threads.append(thread)
-        
-        self.logger.info(f"  - {num_workers} gerenciadores de tracks iniciados")
+            self.logger.info(f"  - {num_workers} gerenciadores de tracks iniciados")
+        except Exception as e:
+            self.logger.error(f"Erro ao iniciar gerenciadores de tracks: {e}", exc_info=True)
+            raise
     
     def _start_findface_workers(self):
         """Inicia workers de envio ao FindFace."""
         num_workers = self.settings.workers.findface_workers
         self.logger.info(f"Iniciando {num_workers} workers de envio ao FindFace...")
         
-        for i in range(num_workers):
-            use_case = SendToFindfaceUseCase(
-                findface_queue=self.findface_queue,
-                findface_client=self.findface_client,
-                stop_event=self.stop_event,
-                queue_timeout=self.settings.workers.timeout
-            )
+        try:
+            for i in range(num_workers):
+                try:
+                    use_case = SendToFindfaceUseCase(
+                        findface_queue=self.findface_queue,
+                        findface_client=self.findface_client,
+                        stop_event=self.stop_event,
+                        queue_timeout=self.settings.workers.timeout
+                    )
+                    
+                    def worker_wrapper(use_case, worker_id):
+                        """Wrapper para capturar exceções em workers de FindFace."""
+                        try:
+                            use_case.execute()
+                        except Exception as e:
+                            self.logger.error(f"Erro no worker de FindFace {worker_id}: {e}", exc_info=True)
+                    
+                    thread = threading.Thread(
+                        target=worker_wrapper,
+                        args=(use_case, i),
+                        name=f"FindfaceSender{i}",
+                        daemon=False
+                    )
+                    thread.start()
+                    self.threads.append(thread)
+                except Exception as e:
+                    self.logger.error(f"Erro ao criar worker de FindFace {i}: {e}", exc_info=True)
             
-            thread = threading.Thread(
-                target=use_case.execute,
-                name=f"FindfaceSender{i}",
-                daemon=False
-            )
-            thread.start()
-            self.threads.append(thread)
-        
-        self.logger.info(f"  - {num_workers} workers de FindFace iniciados")
+            self.logger.info(f"  - {num_workers} workers de FindFace iniciados")
+        except Exception as e:
+            self.logger.error(f"Erro ao iniciar workers de FindFace: {e}", exc_info=True)
+            raise
     
     def _start_camera_streams(self):
         """Inicia streams de câmeras (uma thread por câmera)."""
         self.logger.info("Iniciando streams de câmeras...")
         
-        for camera in self.cameras:
-            use_case = StreamCameraUseCase(
-                camera=camera,
-                frame_queue=self.frame_queue,
-                camera_settings=self.settings.camera,
-                performance_config=self.settings.performance,
-                stop_event=self.stop_event
-            )
+        try:
+            for camera in self.cameras:
+                try:
+                    use_case = StreamCameraUseCase(
+                        camera=camera,
+                        frame_queue=self.frame_queue,
+                        camera_settings=self.settings.camera,
+                        performance_config=self.settings.performance,
+                        stop_event=self.stop_event
+                    )
+                    
+                    def worker_wrapper(use_case, camera_name):
+                        """Wrapper para capturar exceções em streams de câmera."""
+                        try:
+                            use_case.execute()
+                        except Exception as e:
+                            self.logger.error(f"Erro no stream da câmera {camera_name}: {e}", exc_info=True)
+                    
+                    thread = threading.Thread(
+                        target=worker_wrapper,
+                        args=(use_case, camera.camera_name.value()),
+                        name=f"Camera_{camera.camera_name.value()}",
+                        daemon=False
+                    )
+                    thread.start()
+                    self.threads.append(thread)
+                except Exception as e:
+                    self.logger.error(f"Erro ao criar stream para câmera {camera.camera_name.value()}: {e}", exc_info=True)
             
-            thread = threading.Thread(
-                target=use_case.execute,
-                name=f"Camera_{camera.camera_name.value()}",
-                daemon=False
-            )
-            thread.start()
-            self.threads.append(thread)
-        
-        self.logger.info(f"  - {len(self.cameras)} streams de câmeras iniciados")
+            self.logger.info(f"  - {len(self.cameras)} streams de câmeras iniciados")
+        except Exception as e:
+            self.logger.error(f"Erro ao iniciar streams de câmeras: {e}", exc_info=True)
+            raise
     
     def _start_display_workers(self):
         """Inicia workers de display visual (um por câmera)."""
         self.logger.info("Iniciando workers de display visual...")
         
-        for camera in self.cameras:
-            camera_id = str(camera.camera_id.value())  # Converte para string para consistência
-            buffer = self.display_buffers[camera_id]
+        try:
+            for camera in self.cameras:
+                try:
+                    camera_id = str(camera.camera_id.value())  # Converte para string para consistência
+                    buffer = self.display_buffers[camera_id]
+                    
+                    use_case = DisplayCameraUseCase(
+                        camera_id=camera_id,
+                        buffer=buffer,
+                        display_service=self.display_service,
+                        config=self.settings.display
+                    )
+                    
+                    def worker_wrapper(use_case, camera_name):
+                        """Wrapper para capturar exceções em workers de display."""
+                        try:
+                            use_case.run()
+                        except Exception as e:
+                            self.logger.warning(f"Erro no display da câmera {camera_name}: {e}")
+                    
+                    thread = threading.Thread(
+                        target=worker_wrapper,
+                        args=(use_case, camera.camera_name.value()),
+                        name=f"Display_{camera.camera_name.value()}",
+                        daemon=True  # Display pode ser interrompido a qualquer momento
+                    )
+                    thread.start()
+                    self.display_threads.append(thread)
+                except Exception as e:
+                    self.logger.warning(f"Erro ao criar display para câmera {camera.camera_name.value()}: {e}")
             
-            use_case = DisplayCameraUseCase(
-                camera_id=camera_id,
-                buffer=buffer,
-                display_service=self.display_service,
-                config=self.settings.display
-            )
-            
-            thread = threading.Thread(
-                target=use_case.run,
-                name=f"Display_{camera.camera_name.value()}",
-                daemon=True  # Display pode ser interrompido a qualquer momento
-            )
-            thread.start()
-            self.display_threads.append(thread)
-        
-        self.logger.info(f"  - {len(self.display_threads)} workers de display iniciados")
+            self.logger.info(f"  - {len(self.display_threads)} workers de display iniciados")
+        except Exception as e:
+            self.logger.warning(f"Erro ao iniciar workers de display: {e}")
     
     def wait(self):
         """Aguarda todas as threads finalizarem."""

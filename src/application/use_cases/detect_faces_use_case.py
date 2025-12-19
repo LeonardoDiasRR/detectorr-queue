@@ -107,7 +107,11 @@ class DetectFacesUseCase:
             
             # Carrega modelo apenas se não foi fornecido (compartilhado)
             if self.model is None:
-                self._load_model()
+                try:
+                    self._load_model()
+                except Exception as e:
+                    self.logger.error(f"Erro ao carregar modelo de detecção: {e}", exc_info=True)
+                    raise
             
             self._detection_loop()
         except Exception as e:
@@ -128,34 +132,43 @@ class DetectFacesUseCase:
         gc_interval = 3  # Forçar GC a cada 3 batches (MAIS agressivo: era 5)
         
         while not self.stop_event.is_set():
-            # Obtém batch de frames
-            frames = self.frame_queue.get_batch(self.batch_size, timeout=self.queue_timeout)
-            
-            if not frames:
-                continue
-            
-            self.logger.debug(f"Consumidos {len(frames)} frames da fila (tamanho atual: {self.frame_queue.qsize()})")
-            
             try:
-                # Processa batch
-                self._process_batch(frames)
-            finally:
-                # Marca frames como processados
-                for _ in frames:
-                    self.frame_queue.task_done()
+                # Obtém batch de frames
+                frames = self.frame_queue.get_batch(self.batch_size, timeout=self.queue_timeout)
                 
-                # Libera referências aos frames para GC
-                frames.clear()
-                del frames
-            
-            # Garbage collection AGRESSIVO e periódico
-            batch_count += 1
-            if batch_count >= gc_interval:
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                batch_count = 0
+                if not frames:
+                    continue
+                
+                self.logger.debug(f"Consumidos {len(frames)} frames da fila (tamanho atual: {self.frame_queue.qsize()})")
+                
+                try:
+                    # Processa batch
+                    self._process_batch(frames)
+                except Exception as e:
+                    self.logger.error(f"Erro ao processar batch de {len(frames)} frames: {e}", exc_info=True)
+                finally:
+                    # Marca frames como processados
+                    for _ in frames:
+                        self.frame_queue.task_done()
+                    
+                    # Libera referências aos frames para GC
+                    frames.clear()
+                    del frames
+                
+                # Garbage collection AGRESSIVO e periódico
+                batch_count += 1
+                if batch_count >= gc_interval:
+                    try:
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                            torch.cuda.synchronize()
+                        batch_count = 0
+                    except Exception as e:
+                        self.logger.warning(f"Erro ao executar garbage collection: {e}")
+            except Exception as e:
+                self.logger.error(f"Erro no loop principal de detecção: {e}", exc_info=True)
+                # Continua executando mesmo com erro
     
     def _process_batch(self, frames: List[Frame]):
         """
@@ -169,29 +182,42 @@ class DetectFacesUseCase:
         images = [frame.full_frame.value() for frame in frames]
         
         try:
-            # Executa detecção (tracking será feito manualmente)
-            results = self.model.predict(
-                source=images,
-                conf=self.modelo_deteccao_config.confidence_threshold,
-                iou=self.modelo_deteccao_config.iou_threshold,
-                imgsz=self.performance_config.inference_size,
-                device=self.device,
-                verbose=False,
-                stream=False
-            )
+            try:
+                # Executa detecção (tracking será feito manualmente)
+                results = self.model.predict(
+                    source=images,
+                    conf=self.modelo_deteccao_config.confidence_threshold,
+                    iou=self.modelo_deteccao_config.iou_threshold,
+                    imgsz=self.performance_config.inference_size,
+                    device=self.device,
+                    verbose=False,
+                    stream=False
+                )
+            except Exception as e:
+                self.logger.error(f"Erro ao executar inferência do modelo YOLO: {e}", exc_info=True)
+                return
             
             # Processa cada frame de resultados
-            for frame, result in zip(frames, results):
-                self._process_detections(frame, result)
+            try:
+                for frame, result in zip(frames, results):
+                    try:
+                        self._process_detections(frame, result)
+                    except Exception as e:
+                        self.logger.error(f"Erro ao processar detecções do frame: {e}", exc_info=True)
+            except Exception as e:
+                self.logger.error(f"Erro ao iterar sobre resultados: {e}", exc_info=True)
         finally:
             # Libera memória das imagens
             images.clear()
             del images
             
             # Limpa cache GPU AGRESSIVAMENTE
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()  # Garante que cache foi liberado
+            try:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()  # Garante que cache foi liberado
+            except Exception as e:
+                self.logger.warning(f"Erro ao limpar cache GPU: {e}")
     
     def _process_detections(self, frame: Frame, result):
         """
@@ -204,14 +230,25 @@ class DetectFacesUseCase:
             # Se display ativado e sem detecções, ainda pode enviar frame vazio
             if self.display_config and self.display_config.exibir_na_tela:
                 self.logger.debug(f"Enviando frame vazio para display (sem detecções)")
-                self._send_to_display(frame, [])
+                try:
+                    self._send_to_display(frame, [])
+                except Exception as e:
+                    self.logger.warning(f"Erro ao enviar frame vazio para display: {e}")
             return
         
-        boxes = result.boxes.xyxy.cpu().numpy()
-        confidences = result.boxes.conf.cpu().numpy()
+        try:
+            boxes = result.boxes.xyxy.cpu().numpy()
+            confidences = result.boxes.conf.cpu().numpy()
+        except Exception as e:
+            self.logger.error(f"Erro ao extrair boxes do resultado YOLO: {e}", exc_info=True)
+            return
         
         # Obtém frame completo
-        full_frame = frame.full_frame.value()
+        try:
+            full_frame = frame.full_frame.value()
+        except Exception as e:
+            self.logger.error(f"Erro ao obter frame completo: {e}", exc_info=True)
+            return
         
         # Coleta todos os crops de faces para detecção em batch
         face_crops = []
@@ -219,65 +256,96 @@ class DetectFacesUseCase:
         
         try:
             for idx in range(len(boxes)):
-                bbox = boxes[idx]
-                confidence = float(confidences[idx])
-                
-                # Extrai crop da face
-                x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                face_crop = full_frame[y1:y2, x1:x2]
-                
-                face_crops.append(face_crop)
-                detection_data.append({
-                    'bbox': bbox,
-                    'confidence': confidence
-                })
+                try:
+                    bbox = boxes[idx]
+                    confidence = float(confidences[idx])
+                    
+                    # Extrai crop da face
+                    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    face_crop = full_frame[y1:y2, x1:x2]
+                    
+                    face_crops.append(face_crop)
+                    detection_data.append({
+                        'bbox': bbox,
+                        'confidence': confidence
+                    })
+                except Exception as e:
+                    self.logger.warning(f"Erro ao processar detecção {idx}: {e}")
+                    continue
+            
+            if not face_crops:
+                self.logger.debug("Nenhum crop de face válido extraído")
+                return
             
             # Detecta em um único lote todos os landmarks do frame (batch processing)
-            landmarks_list = self.landmark_service.detect_batch(face_crops)
+            try:
+                landmarks_list = self.landmark_service.detect_batch(face_crops)
+            except Exception as e:
+                self.logger.error(f"Erro ao detectar landmarks em batch: {e}", exc_info=True)
+                landmarks_list = [None] * len(face_crops)
             
             # Cria eventos para cada detecção
             events_for_display = []
             for detection, landmarks_vo in zip(detection_data, landmarks_list):
-                self._event_counter += 1
-                
-                # ISOLAMENTO: Cria evento com cópia do frame
-                # Cada evento tem seu próprio frame (isolado)
-                event = Event(
-                    id=IdVO(self._event_counter),
-                    frame=frame.copy(),  # Cópia isolada do frame
-                    bbox=BboxVO(tuple(detection['bbox'].tolist())),
-                    confidence=ConfidenceVO(detection['confidence']),
-                    landmarks=landmarks_vo
-                )
-                
-                # Enfileira evento (que já tem sua cópia de frame)
-                if not self.event_queue.put(event, block=False):
-                    self.logger.warning(f"Fila de eventos cheia, evento {self._event_counter} descartado")
-                    # Limpa evento se não foi enfileirado
-                    event.cleanup()
-                
-                # Armazena para display
-                events_for_display.append(event)
+                try:
+                    self._event_counter += 1
+                    
+                    # ISOLAMENTO: Cria evento com cópia do frame
+                    # Cada evento tem seu próprio frame (isolado)
+                    event = Event(
+                        id=IdVO(self._event_counter),
+                        frame=frame.copy(),  # Cópia isolada do frame
+                        bbox=BboxVO(tuple(detection['bbox'].tolist())),
+                        confidence=ConfidenceVO(detection['confidence']),
+                        landmarks=landmarks_vo
+                    )
+                    
+                    # Enfileira evento (que já tem sua cópia de frame)
+                    if not self.event_queue.put(event, block=False):
+                        self.logger.warning(f"Fila de eventos cheia, evento {self._event_counter} descartado")
+                        # Limpa evento se não foi enfileirado
+                        try:
+                            event.cleanup()
+                        except Exception as cleanup_error:
+                            self.logger.warning(f"Erro ao fazer cleanup do evento: {cleanup_error}")
+                    else:
+                        # Armazena para display
+                        events_for_display.append(event)
+                except Exception as e:
+                    self.logger.warning(f"Erro ao criar evento de detecção: {e}")
+                    continue
             
             # ISOLAMENTO: Deleta o frame original após criar todos os eventos
             # Cada evento tem sua própria cópia de frame agora
-            self._release_frame_memory(frame)
+            try:
+                self._release_frame_memory(frame)
+            except Exception as e:
+                self.logger.warning(f"Erro ao liberar memória do frame: {e}")
             
             # Envia para display se ativado
             if self.display_config and self.display_config.exibir_na_tela:
                 self.logger.debug(f"Enviando frame com {len(events_for_display)} detecções para display")
-                self._send_to_display(frame, events_for_display)
+                try:
+                    self._send_to_display(frame, events_for_display)
+                except Exception as e:
+                    self.logger.warning(f"Erro ao enviar frame para display: {e}")
         finally:
             # Libera memória das estruturas temporárias
-            face_crops.clear()
-            detection_data.clear()
-            del face_crops, detection_data
-            del boxes, confidences
+            try:
+                face_crops.clear()
+                detection_data.clear()
+                del face_crops, detection_data
+                del boxes, confidences
+            except Exception as e:
+                self.logger.warning(f"Erro ao limpar estruturas temporárias: {e}")
             
             # Libera frame da memória (não mais necessário)
             # O frame será removido da referência quando sair desta função
-            if result is not None:
-                del result  # Deleta o resultado do modelo também
+            try:
+                if result is not None:
+                    del result  # Deleta o resultado do modelo também
+            except Exception as e:
+                self.logger.warning(f"Erro ao deletar resultado do modelo: {e}")
     
     def _release_frame_memory(self, frame: Frame) -> None:
         """

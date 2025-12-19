@@ -59,44 +59,70 @@ def main():
         
         # Cria cliente FindFace
         logger.info("Conectando ao FindFace...")
-        findface_client = FindfaceMulti(
-            url_base=settings.findface.url_base,
-            user=settings.findface.user,
-            password=settings.findface.password,
-            uuid=settings.findface.uuid
-        )
-        logger.info("Conexão com FindFace estabelecida")
+        try:
+            findface_client = FindfaceMulti(
+                url_base=settings.findface.url_base,
+                user=settings.findface.user,
+                password=settings.findface.password,
+                uuid=settings.findface.uuid
+            )
+            logger.info("Conexão com FindFace estabelecida")
+        except Exception as e:
+            logger.warning(f"Erro ao conectar ao FindFace: {e}")
+            logger.warning("Continuando sem FindFace...")
+            findface_client = None
         
         # Cria repositório de câmeras
-        camera_repository = CameraRepositoryFindface(
-            findface_client=findface_client,
-            camera_prefix=settings.camera.prefix
-        )
+        try:
+            camera_repository = CameraRepositoryFindface(
+                findface_client=findface_client,
+                camera_prefix=settings.camera.prefix
+            )
+        except Exception as e:
+            logger.error(f"Erro ao criar repositório de câmeras: {e}", exc_info=True)
+            raise
         
         # Cria orquestrador
-        orchestrator = ApplicationOrchestrator(
-            settings=settings,
-            camera_repository=camera_repository,
-            findface_client=findface_client
-        )
+        try:
+            orchestrator = ApplicationOrchestrator(
+                settings=settings,
+                camera_repository=camera_repository,
+                findface_client=findface_client
+            )
+        except Exception as e:
+            logger.error(f"Erro ao criar orquestrador: {e}", exc_info=True)
+            raise
         
         # Inicia aplicação
-        orchestrator.start()
+        try:
+            orchestrator.start()
+        except Exception as e:
+            logger.error(f"Erro ao iniciar aplicação: {e}", exc_info=True)
+            raise
         
         # Aguarda até ser interrompido
-        orchestrator.wait()
+        try:
+            orchestrator.wait()
+        except KeyboardInterrupt:
+            pass
         
         return 0
         
     except KeyboardInterrupt:
-        logger.info("Interrupção via teclado detectada")
+        logger.info("Interrupção via teclado detectada (CTRL+C)")
         if orchestrator:
-            orchestrator.stop()
+            try:
+                orchestrator.stop()
+            except Exception as e:
+                logger.error(f"Erro ao parar orquestrador: {e}", exc_info=True)
         return 0
     except Exception as e:
         logger.error(f"Erro fatal na aplicação: {e}", exc_info=True)
         if orchestrator:
-            orchestrator.stop()
+            try:
+                orchestrator.stop()
+            except Exception as stop_error:
+                logger.error(f"Erro ao parar orquestrador durante tratamento de erro: {stop_error}", exc_info=True)
         return 1
     finally:
         # Faz logout do FindFace

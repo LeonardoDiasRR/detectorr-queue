@@ -83,24 +83,33 @@ class DisplayCameraUseCase:
         Returns:
             True se deve parar
         """
-        if self._stop_event.is_set():
-            return True
-            
-        # Verifica tecla ESC (27)
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:
-            self.logger.info(f"[{self.camera_id}] ESC pressionado, fechando display")
-            return True
-            
-        # Verifica se janela foi fechada
         try:
+            if self._stop_event.is_set():
+                return True
+        except Exception as e:
+            self.logger.warning(f"[{self.camera_id}] Erro ao verificar stop_event: {e}")
+        
+        try:
+            # Verifica tecla ESC (27)
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:
+                self.logger.info(f"[{self.camera_id}] ESC pressionado, fechando display")
+                return True
+        except Exception as e:
+            self.logger.warning(f"[{self.camera_id}] Erro ao verificar teclado: {e}")
+        
+        try:
+            # Verifica se janela foi fechada
             if cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE) < 1:
                 self.logger.info(f"[{self.camera_id}] Janela fechada pelo usuário")
                 return True
         except cv2.error:
             # Janela não existe mais
             return True
-            
+        except Exception as e:
+            self.logger.warning(f"[{self.camera_id}] Erro ao verificar propriedade da janela: {e}")
+            return True
+        
         return False
         
     def run(self):
@@ -115,73 +124,101 @@ class DisplayCameraUseCase:
         self._running = True
         self.logger.info(f"[{self.camera_id}] Iniciando display visual")
         
+        frame_delay = 0
+        frames_displayed = 0
+        
         try:
-            # Cria janela
-            cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(
-                self.window_name,
-                self.config.window_width,
-                self.config.window_height
-            )
+            try:
+                # Cria janela
+                cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(
+                    self.window_name,
+                    self.config.window_width,
+                    self.config.window_height
+                )
+                frame_delay = self._calculate_frame_delay()
+            except Exception as e:
+                self.logger.error(f"[{self.camera_id}] Erro ao criar janela: {e}", exc_info=True)
+                raise
             
-            frame_delay = self._calculate_frame_delay()
             last_frame_time = 0
-            frames_displayed = 0
             
             while not self._should_stop():
-                # Controla FPS
-                current_time = time.time()
-                if current_time - last_frame_time < frame_delay:
-                    time.sleep(0.001)  # Sleep curto para não travar CPU
-                    cv2.waitKey(1)  # Necessário para processar eventos da janela
-                    continue
-                    
-                # Tenta obter frame do buffer
-                annotated_frame: Optional[AnnotatedFrame] = self.buffer.get_nowait()
-                
-                if annotated_frame is None:
-                    # Sem frames, aguarda um pouco
-                    if frames_displayed == 0:
-                        self.logger.debug(f"[{self.camera_id}] Aguardando frames no buffer...")
-                    time.sleep(0.01)
-                    cv2.waitKey(1)  # Necessário para processar eventos da janela
-                    continue
-                    
                 try:
-                    # Renderiza frame
-                    rendered_frame = self.display_service.render_frame(annotated_frame)
+                    # Controla FPS
+                    try:
+                        current_time = time.time()
+                        if current_time - last_frame_time < frame_delay:
+                            time.sleep(0.001)  # Sleep curto para não travar CPU
+                            try:
+                                cv2.waitKey(1)  # Necessário para processar eventos da janela
+                            except Exception:
+                                pass
+                            continue
+                    except Exception as e:
+                        self.logger.warning(f"[{self.camera_id}] Erro no controle de FPS: {e}")
                     
-                    # Exibe
-                    cv2.imshow(self.window_name, rendered_frame)
-                    cv2.waitKey(1)  # Necessário para atualizar a janela
+                    try:
+                        # Tenta obter frame do buffer
+                        annotated_frame: Optional[AnnotatedFrame] = self.buffer.get_nowait()
+                        
+                        if annotated_frame is None:
+                            # Sem frames, aguarda um pouco
+                            if frames_displayed == 0:
+                                self.logger.debug(f"[{self.camera_id}] Aguardando frames no buffer...")
+                            time.sleep(0.01)
+                            try:
+                                cv2.waitKey(1)  # Necessário para processar eventos da janela
+                            except Exception:
+                                pass
+                            continue
+                    except Exception as e:
+                        self.logger.debug(f"[{self.camera_id}] Erro ao obter frame do buffer: {e}")
+                        time.sleep(0.01)
+                        continue
                     
-                    frames_displayed += 1
-                    if frames_displayed == 1:
-                        self.logger.info(f"[{self.camera_id}] Primeiro frame exibido com sucesso!")
-                    elif frames_displayed % 100 == 0:
-                        self.logger.debug(f"[{self.camera_id}] {frames_displayed} frames exibidos")
-                    last_frame_time = current_time
-                    
+                    try:
+                        # Renderiza frame
+                        rendered_frame = self.display_service.render_frame(annotated_frame)
+                        
+                        # Exibe
+                        cv2.imshow(self.window_name, rendered_frame)
+                        try:
+                            cv2.waitKey(1)  # Necessário para atualizar a janela
+                        except Exception:
+                            pass
+                        
+                        frames_displayed += 1
+                        if frames_displayed == 1:
+                            self.logger.info(f"[{self.camera_id}] Primeiro frame exibido com sucesso!")
+                        elif frames_displayed % 100 == 0:
+                            self.logger.debug(f"[{self.camera_id}] {frames_displayed} frames exibidos")
+                        last_frame_time = current_time
+                    except Exception as e:
+                        self.logger.warning(
+                            f"[{self.camera_id}] Erro ao renderizar/exibir frame: {e}"
+                        )
                 except Exception as e:
-                    self.logger.error(
-                        f"[{self.camera_id}] Erro ao renderizar/exibir frame: {e}"
-                    )
-                    
-        except Exception as e:
-            self.logger.error(f"[{self.camera_id}] Erro fatal no display: {e}")
+                    self.logger.error(f"[{self.camera_id}] Erro no loop de display: {e}", exc_info=True)
+                    time.sleep(0.1)  # Evita busy loop em caso de erro
             
+        except Exception as e:
+            self.logger.error(f"[{self.camera_id}] Erro fatal no display: {e}", exc_info=True)
         finally:
             # Cleanup
             try:
                 cv2.destroyWindow(self.window_name)
-            except:
+            except Exception:
                 pass
-                
-            self._running = False
-            self.logger.info(
-                f"[{self.camera_id}] Display finalizado. "
-                f"Frames exibidos: {frames_displayed}"
-            )
+            
+            try:
+                self._running = False
+                self.logger.info(
+                    f"[{self.camera_id}] Display finalizado. "
+                    f"Frames exibidos: {frames_displayed}"
+                )
+            except Exception as e:
+                self.logger.warning(f"[{self.camera_id}] Erro ao finalizar display: {e}")
             
     def stop(self):
         """

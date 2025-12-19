@@ -53,61 +53,97 @@ class StreamCameraUseCase:
             try:
                 self._connect()
                 self._capture_loop()
-            except Exception as e:
+            except ConnectionError as e:
                 retries += 1
                 self.logger.error(
-                    f"Erro na captura da câmera {self.camera.camera_name.value()}: {e}. "
+                    f"Erro de conexão na câmera {self.camera.camera_name.value()}: {e}. "
                     f"Tentativa {retries}/{self.camera_settings.rtsp_max_retries}"
                 )
                 
                 if retries < self.camera_settings.rtsp_max_retries:
-                    self.logger.info(f"Aguardando {self.camera_settings.rtsp_reconnect_delay}s para reconectar...")
-                    time.sleep(self.camera_settings.rtsp_reconnect_delay)
+                    try:
+                        self.logger.info(f"Aguardando {self.camera_settings.rtsp_reconnect_delay}s para reconectar...")
+                        time.sleep(self.camera_settings.rtsp_reconnect_delay)
+                    except Exception as sleep_error:
+                        self.logger.warning(f"Erro durante espera para reconectar: {sleep_error}")
+                else:
+                    self.logger.error(f"Máximo de tentativas alcançado para câmera {self.camera.camera_name.value()}")
+            except Exception as e:
+                retries += 1
+                self.logger.error(
+                    f"Erro na captura da câmera {self.camera.camera_name.value()}: {e}. "
+                    f"Tentativa {retries}/{self.camera_settings.rtsp_max_retries}",
+                    exc_info=True
+                )
+                
+                if retries < self.camera_settings.rtsp_max_retries:
+                    try:
+                        self.logger.info(f"Aguardando {self.camera_settings.rtsp_reconnect_delay}s para reconectar...")
+                        time.sleep(self.camera_settings.rtsp_reconnect_delay)
+                    except Exception as sleep_error:
+                        self.logger.warning(f"Erro durante espera para reconectar: {sleep_error}")
                 else:
                     self.logger.error(f"Máximo de tentativas alcançado para câmera {self.camera.camera_name.value()}")
             finally:
-                self._disconnect()
+                try:
+                    self._disconnect()
+                except Exception as disconnect_error:
+                    self.logger.warning(f"Erro ao desconectar da câmera: {disconnect_error}")
         
         self.logger.info(f"Captura finalizada para câmera {self.camera.camera_name.value()}")
     
     def _connect(self):
         """Conecta ao stream RTSP."""
-        self.logger.info(f"Conectando ao RTSP: {self.camera.source.value()}")
-        self._capture = cv2.VideoCapture(self.camera.source.value())
-        
-        if not self._capture.isOpened():
-            raise ConnectionError(f"Não foi possível conectar ao RTSP: {self.camera.source.value()}")
-        
-        self.logger.info("Conexão RTSP estabelecida com sucesso")
+        try:
+            self.logger.info(f"Conectando ao RTSP: {self.camera.source.value()}")
+            self._capture = cv2.VideoCapture(self.camera.source.value())
+            
+            if not self._capture.isOpened():
+                raise ConnectionError(f"Não foi possível conectar ao RTSP: {self.camera.source.value()}")
+            
+            self.logger.info("Conexão RTSP estabelecida com sucesso")
+        except Exception as e:
+            self.logger.error(f"Erro ao conectar ao RTSP: {e}", exc_info=True)
+            raise
     
     def _disconnect(self):
         """Desconecta do stream RTSP."""
-        if self._capture is not None:
-            self._capture.release()
-            self._capture = None
-            self.logger.info("Conexão RTSP encerrada")
+        try:
+            if self._capture is not None:
+                self._capture.release()
+                self._capture = None
+                self.logger.info("Conexão RTSP encerrada")
+        except Exception as e:
+            self.logger.warning(f"Erro ao desconectar do RTSP: {e}")
     
     def _capture_loop(self):
         """Loop principal de captura de frames."""
         while not self.stop_event.is_set():
-            ret, frame_data = self._capture.read()
-            
-            if not ret or frame_data is None:
-                self.logger.warning("Falha ao ler frame do RTSP")
+            try:
+                ret, frame_data = self._capture.read()
+                
+                if not ret or frame_data is None:
+                    self.logger.warning("Falha ao ler frame do RTSP")
+                    break
+                
+                self._frame_counter += 1
+                
+                try:
+                    # Cria entidade Frame
+                    frame = Frame(
+                        id=IdVO(self._frame_counter),
+                        camera_id=self.camera.camera_id,
+                        camera_name=self.camera.camera_name,
+                        camera_token=self.camera.camera_token,
+                        timestamp=TimestampVO.now(),
+                        full_frame=FullFrameVO(frame_data)
+                    )
+                    
+                    # Enfileira frame (não bloqueia se fila estiver cheia)
+                    if not self.frame_queue.put(frame, block=False):
+                        self.logger.warning("Fila de frames cheia")
+                except Exception as e:
+                    self.logger.error(f"Erro ao criar entidade Frame: {e}")
+            except Exception as e:
+                self.logger.error(f"Erro no loop de captura: {e}", exc_info=True)
                 break
-            
-            self._frame_counter += 1
-            
-            # Cria entidade Frame
-            frame = Frame(
-                id=IdVO(self._frame_counter),
-                camera_id=self.camera.camera_id,
-                camera_name=self.camera.camera_name,
-                camera_token=self.camera.camera_token,
-                timestamp=TimestampVO.now(),
-                full_frame=FullFrameVO(frame_data)
-            )
-            
-            # Enfileira frame (não bloqueia se fila estiver cheia)
-            if not self.frame_queue.put(frame, block=False):
-                self.logger.warning("Fila de frames cheia")
