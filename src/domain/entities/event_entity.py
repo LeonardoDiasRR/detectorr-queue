@@ -3,6 +3,7 @@ Entidade Event representando uma detecção de face em um frame.
 """
 
 from typing import Optional
+import numpy as np
 from src.domain.entities.frame_entity import Frame
 from src.domain.value_objects import IdVO, BboxVO, ConfidenceVO, LandmarksVO
 
