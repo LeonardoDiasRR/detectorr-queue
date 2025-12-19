@@ -253,29 +253,17 @@ class ManageTracksUseCase:
             del track  # GC irá descartar
             return
         
-        # Obtém melhor evento (ainda não foi zerado)
+        # Obtém melhor evento
         best_event = track.best_event
         
         if best_event is None:
             self.logger.warning(f"Track {track.id.value()} finalizado sem melhor evento")
-            track.finalize()  # Libera memória
-            del track  # GC
-            return
-        
-        # Valida se best_event tem frame intacto ANTES de copiar
-        if best_event.frame is None:
-            self.logger.error(
-                f"Track {track.id.value()} possui best_event com frame None. "
-                f"Descartando sem envio ao FindFace. "
-                f"Isto indica um problema de sincronização ou cleanup prematuro."
-            )
             track.finalize()
             del track
             return
         
         # Enfileira melhor evento ao FindFace
-        # ISOLAMENTO: O evento no track é uma cópia isolada
-        # Fazemos outra cópia para enviar (isolando completamente do track)
+        # Cria uma cópia para isolar completamente do track
         try:
             best_event_copy = best_event.copy()
         except (ValueError, AttributeError) as e:

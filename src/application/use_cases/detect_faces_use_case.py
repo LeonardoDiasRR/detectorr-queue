@@ -303,11 +303,7 @@ class DetectFacesUseCase:
                     # Enfileira evento (que já tem sua cópia de frame)
                     if not self.event_queue.put(event, block=False):
                         self.logger.warning(f"Fila de eventos cheia, evento {self._event_counter} descartado")
-                        # Limpa evento se não foi enfileirado
-                        try:
-                            event.cleanup()
-                        except Exception as cleanup_error:
-                            self.logger.warning(f"Erro ao fazer cleanup do evento: {cleanup_error}")
+                        # Evento será descartado, garbage collection cuidará da limpeza
                     else:
                         # Armazena para display
                         events_for_display.append(event)

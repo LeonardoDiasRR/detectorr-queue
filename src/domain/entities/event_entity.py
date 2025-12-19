@@ -138,32 +138,26 @@ class Event:
         Útil para isolar eventos entre camadas de processamento.
         Garante que múltiplas threads podem processar cópias sem interferência.
         
-        **IMPORTANTE**: O frame deve ser copiado ANTES do método cleanup() ser chamado.
-        Se o frame for None, significa que cleanup() foi chamado antes de copy().
-        
         :return: Nova instância de Event com frame e value objects copiados.
-        :raises ValueError: Se o frame foi limpado (cleanup chamado antes de copy)
+        :raises TypeError: Se o frame não é um Frame válido
         """
         from src.domain.value_objects import IdVO, BboxVO, ConfidenceVO, LandmarksVO
         
-        # Verifica se frame foi limpo (cleanup chamado antes de copy)
-        if self._frame is None:
-            # Tenta fornecer informação útil para debug
-            event_id_str = f"id={self._id.value()}" if self._id else "id=UNKNOWN"
-            raise ValueError(
-                f"Não é possível copiar evento ({event_id_str}): "
-                f"o frame foi limpado via cleanup(). "
-                f"A cópia deve ser feita ANTES do cleanup. "
-                f"Isto indica um problema de sequenciação ou sincronização."
+        # Valida integridade do frame ANTES de copiar
+        if not isinstance(self._frame, Frame):
+            raise TypeError(
+                f"Frame corrompido no evento {self._id.value()}: "
+                f"esperado Frame, recebido {type(self._frame).__name__}. "
+                f"Isto indica um erro interno de integridade de dados."
             )
         
         try:
             # Cria cópia do frame (inclui cópia do numpy array)
             frame_copy = self._frame.copy()
         except (AttributeError, TypeError) as e:
-            raise ValueError(
+            raise TypeError(
                 f"Erro ao copiar frame do evento {self._id.value()}: {e}. "
-                f"Frame pode estar corrompido ou não é um Frame válido."
+                f"Frame pode estar corrompido ou não implementa copy()."
             )
         
         # Recria value objects com os mesmos valores (deep copy isolado)
@@ -207,28 +201,3 @@ class Event:
     def __str__(self) -> str:
         """Representação legível do evento."""
         return f"Event {self._id.value()} (Quality: {self._face_quality_score.value():.4f})"
-
-    def cleanup(self) -> None:
-        """
-        Libera completamente a memória do evento e seu frame associado.
-        IMPORTANTE: Chamado quando o evento deixa de ser necessário.
-        
-        Cascata de limpeza:
-        - Zera APENAS o frame (é o que consome ~7MB de memória)
-        - Mantém os value objects intactos (são pequenos e compartilhados com cópias)
-        
-        Deve ser chamado em:
-        1. Ao descartar evento do track (não é primeiro/melhor/último)
-        2. Após envio ao FindFace (evento foi consumido)
-        3. Durante finalização do track (todos os eventos são removidos)
-        """
-        try:
-            # Zera APENAS o frame (grande consumidor de memória)
-            if hasattr(self, '_frame') and self._frame is not None:
-                self._frame = None
-            
-            # IMPORTANTE: NÃO zera value objects!
-            # São imutáveis, pequenos, e podem estar compartilhados com outras cópias
-            # Exemplo: event.copy() reutiliza os mesmos value objects, não cria cópias
-        except Exception:
-            pass  # Deixa o GC fazer o trabalho se houver erro

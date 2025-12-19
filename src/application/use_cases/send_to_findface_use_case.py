@@ -194,14 +194,7 @@ class SendToFindfaceUseCase:
             except Exception as e:
                 self.logger.warning(f"Erro ao deletar fullframe_bytes: {e}")
             
-            # ISOLAMENTO: Deleta a cópia do evento após processamento
-            # O evento na fila é uma cópia, não há race condition com Track
-            # Track já foi finalizado e deletado
-            try:
-                if event is not None and hasattr(event, 'cleanup'):
-                    event.cleanup()
-            except Exception as e:
-                self.logger.warning(f"Erro ao fazer cleanup do evento: {e}")
+            # Evento será descartado, garbage collection cuidará da limpeza
     
     def _log_statistics(self):
         """Loga estatísticas de envio."""

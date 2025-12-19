@@ -193,60 +193,57 @@ class Track:
     
     def _release_event_memory(self, event: Event) -> None:
         """
-        Libera COMPLETAMENTE a memória de um evento que não será mais utilizado.
+        Remove referência a um evento que não será mais utilizado.
         
-        Cascata de limpeza:
-        - Event.cleanup() → zera frame e value objects
-        - Frame é descartado → sua memória é liberada
+        O evento é descartado apenas removendo a referência a ele.
+        A garbage collection limpará a memória quando não houver mais referências.
         
         Deve ser chamado para eventos que:
         1. Não são o primeiro, último ou melhor evento do track
         2. Foram removidos do track (substituídos por melhor evento)
         
-        :param event: Evento cujas referências devem ser liberadas.
+        :param event: Evento cuja referência deve ser removida.
         """
-        try:
-            if event is not None and hasattr(event, 'cleanup'):
-                event.cleanup()
-        except Exception:
-            pass  # Deixa o GC fazer o trabalho se houver erro
+        # Simplesmente removemos a referência
+        # A garbage collection cuidará da limpeza de memória
+        pass
 
     def cleanup(self) -> None:
         """
-        Limpa a memória do track antes de ser descartado.
-        Remove referências desnecessárias mantendo apenas o best_event.
+        Remove referências aos eventos do track.
+        Permite que a garbage collection limpe a memória.
         
-        IMPORTANTE: Deve ser chamado ANTES de finalizar o track.
+        IMPORTANTE: Deve ser chamado ANTES de finalizar o track para liberar
+        referências aos eventos que não serão mais utilizados.
         Mantém o best_event intacto (ele será enviado ao FindFace depois).
         """
-        # Libera first_event completamente se ele não for o best_event
+        # Remove referências aos eventos (não best_event)
+        # A garbage collection cuidará de limpá-los da memória
         if self._first_event is not None and self._first_event is not self._best_event:
-            self._release_event_memory(self._first_event)
             self._first_event = None
         
-        # Libera last_event completamente se ele não for o best_event
         if self._last_event is not None and self._last_event is not self._best_event:
-            self._release_event_memory(self._last_event)
             self._last_event = None
 
     def finalize(self) -> None:
         """
-        Finaliza COMPLETAMENTE o track, liberando TODA memória em cascata.
+        Finaliza o track e remove suas referências internas.
         
-        Cascata de limpeza:
-        1. cleanup() → libera first_event e last_event (se não forem best)
-        2. Libera best_event
+        Limpeza:
+        1. cleanup() → remove referências a first_event e last_event
+        2. Remove best_event
         3. Zera contadores
+        
+        A garbage collection cuidará de limpar a memória.
         
         IMPORTANTE: Chamado APÓS o best_event ser consumido/enviado ao FindFace.
         O track não pode mais ser utilizado após esta chamada.
         """
-        # Primeiro executa cleanup parcial
+        # Primeiro executa cleanup parcial (remove referências a first/last)
         self.cleanup()
         
-        # Depois libera completamente o best_event também
+        # Depois remove best_event também
         if self._best_event is not None:
-            self._release_event_memory(self._best_event)
             self._best_event = None
         
         # Zera contadores
