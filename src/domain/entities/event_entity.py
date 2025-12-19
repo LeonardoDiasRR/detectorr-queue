@@ -149,7 +149,7 @@ class Event:
         id_copy = IdVO(self._id.value())
         bbox_copy = BboxVO(self._bbox.value())
         confidence_copy = ConfidenceVO(self._confidence.value())
-        landmarks_copy = LandmarksVO(self._landmarks.to_list() if not self._landmarks.is_empty() else [])
+        landmarks_copy = LandmarksVO(np.array(self._landmarks.to_list()) if not self._landmarks.is_empty() else None)
         quality_copy = ConfidenceVO(self._face_quality_score.value())
         
         # Cria novo evento com deep copy completo
