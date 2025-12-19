@@ -262,21 +262,46 @@ class ManageTracksUseCase:
             del track  # GC
             return
         
+        # Valida se best_event tem frame intacto ANTES de copiar
+        if best_event.frame is None:
+            self.logger.error(
+                f"Track {track.id.value()} possui best_event com frame None. "
+                f"Descartando sem envio ao FindFace. "
+                f"Isto indica um problema de sincronização ou cleanup prematuro."
+            )
+            track.finalize()
+            del track
+            return
+        
         # Enfileira melhor evento ao FindFace
         # ISOLAMENTO: O evento no track é uma cópia isolada
         # Fazemos outra cópia para enviar (isolando completamente do track)
-        if not self.findface_queue.put(best_event.copy(), block=False):
+        try:
+            best_event_copy = best_event.copy()
+        except (ValueError, AttributeError) as e:
+            self.logger.error(
+                f"Erro ao copiar best_event do track {track.id.value()}: {e}. "
+                f"Track será descartado sem envio ao FindFace."
+            )
+            track.finalize()
+            del track
+            return
+        
+        if not self.findface_queue.put(best_event_copy, block=False):
             self.logger.warning(
                 f"Fila do FindFace cheia, evento do track {track.id.value()} descartado "
                 f"(tamanho fila: {self.findface_queue.qsize()})"
             )
         else:
-            self.logger.info(
-                f"✓ Track {track.id.value()} finalizado e enviado à fila do FindFace | "
-                f"eventos: {track.event_count} | "
-                f"movimento: {track._movement_count} | "
-                f"qualidade: {best_event.face_quality_score.value():.4f}"
-            )
+            try:
+                self.logger.info(
+                    f"✓ Track {track.id.value()} finalizado e enviado à fila do FindFace | "
+                    f"eventos: {track.event_count} | "
+                    f"movimento: {track._movement_count} | "
+                    f"qualidade: {best_event.face_quality_score.value():.4f}"
+                )
+            except Exception as e:
+                self.logger.warning(f"Erro ao logar informações do track: {e}")
         
         # Libera TODA memória do track (inclusive best_event)
         # O evento já foi enfileirado ao FindFace, SendFindface consumer irá processar

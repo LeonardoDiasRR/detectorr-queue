@@ -138,12 +138,33 @@ class Event:
         Útil para isolar eventos entre camadas de processamento.
         Garante que múltiplas threads podem processar cópias sem interferência.
         
+        **IMPORTANTE**: O frame deve ser copiado ANTES do método cleanup() ser chamado.
+        Se o frame for None, significa que cleanup() foi chamado antes de copy().
+        
         :return: Nova instância de Event com frame e value objects copiados.
+        :raises ValueError: Se o frame foi limpado (cleanup chamado antes de copy)
         """
         from src.domain.value_objects import IdVO, BboxVO, ConfidenceVO, LandmarksVO
         
-        # Cria cópia do frame (inclui cópia do numpy array)
-        frame_copy = self._frame.copy()
+        # Verifica se frame foi limpo (cleanup chamado antes de copy)
+        if self._frame is None:
+            # Tenta fornecer informação útil para debug
+            event_id_str = f"id={self._id.value()}" if self._id else "id=UNKNOWN"
+            raise ValueError(
+                f"Não é possível copiar evento ({event_id_str}): "
+                f"o frame foi limpado via cleanup(). "
+                f"A cópia deve ser feita ANTES do cleanup. "
+                f"Isto indica um problema de sequenciação ou sincronização."
+            )
+        
+        try:
+            # Cria cópia do frame (inclui cópia do numpy array)
+            frame_copy = self._frame.copy()
+        except (AttributeError, TypeError) as e:
+            raise ValueError(
+                f"Erro ao copiar frame do evento {self._id.value()}: {e}. "
+                f"Frame pode estar corrompido ou não é um Frame válido."
+            )
         
         # Recria value objects com os mesmos valores (deep copy isolado)
         # Evita compartilhamento de referências entre cópias
