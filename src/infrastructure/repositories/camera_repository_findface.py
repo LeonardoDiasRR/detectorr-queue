@@ -5,7 +5,7 @@ Infrastructure Layer - implementação concreta da interface do domínio.
 
 from typing import List
 import logging
-from src.infrastructure.clients import FindfaceMulti
+from src.infrastructure.clients import FindfaceMulti, FindfaceMultiAsync
 from src.domain.entities import Camera
 from src.domain.repositories import CameraRepository
 from src.domain.value_objects import IdVO, NameVO, CameraTokenVO, CameraSourceVO
@@ -16,15 +16,19 @@ class CameraRepositoryFindface(CameraRepository):
     Implementação concreta do CameraRepository usando FindFace Multi API.
     """
 
-    def __init__(self, findface_client: FindfaceMulti, camera_prefix: str = 'TESTE'):
+    def __init__(self, findface_client, camera_prefix: str = 'TESTE'):
         """
         Inicializa o repositório de câmeras do FindFace.
 
-        :param findface_client: Instância do cliente FindfaceMulti.
+        :param findface_client: Instância do cliente FindfaceMulti ou FindfaceMultiAsync.
         :param camera_prefix: Prefixo para filtrar grupos de câmeras virtuais.
         """
-        if not isinstance(findface_client, FindfaceMulti):
-            raise TypeError("O parâmetro 'findface_client' deve ser uma instância de FindfaceMulti.")
+        # Aceita tanto FindfaceMulti quanto FindfaceMultiAsync (wrapper)
+        if not isinstance(findface_client, (FindfaceMulti, FindfaceMultiAsync)):
+            raise TypeError(
+                "O parâmetro 'findface_client' deve ser uma instância de FindfaceMulti "
+                "ou FindfaceMultiAsync."
+            )
         
         self.findface = findface_client
         self.camera_prefix = camera_prefix

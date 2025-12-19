@@ -157,10 +157,20 @@ def main():
             except:
                 pass
         
-        # Faz logout do FindFace
+        # Faz logout do FindFace (se for o cliente original, não o wrapper)
         if findface_client and not isinstance(findface_client, FindfaceMultiAsync):
+            # É o cliente original, pode fazer logout
             try:
                 findface_client.logout()
+                if async_logger:
+                    logger = async_logger.get_logger(__name__)
+                    logger.info("Logout do FindFace realizado")
+            except:
+                pass
+        elif isinstance(findface_client, FindfaceMultiAsync):
+            # É o wrapper, fazer logout do cliente interno
+            try:
+                findface_client.client.logout()
                 if async_logger:
                     logger = async_logger.get_logger(__name__)
                     logger.info("Logout do FindFace realizado")
