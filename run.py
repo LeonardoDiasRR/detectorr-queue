@@ -34,11 +34,15 @@ def setup_logging(log_config):
     
     :param log_config: Configurações de logging.
     """
+    # Define arquivo de log (será truncado a cada execução)
+    log_file = project_root / "application.log"
+    
     # Cria e inicia AsyncLogger
     async_logger = AsyncLogger(
         "detectorr-queue",
         queue_size=10000,
-        level=getattr(logging, log_config.level.upper())
+        level=getattr(logging, log_config.level.upper()),
+        log_file=str(log_file)  # Arquivo será limpo (mode='w') a cada start
     )
     async_logger.start()
     

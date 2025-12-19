@@ -50,7 +50,8 @@ class AsyncLogger:
         self,
         name: str,
         queue_size: int = 10000,
-        level: int = logging.INFO
+        level: int = logging.INFO,
+        log_file: Optional[str] = None
     ):
         """
         Inicializa o AsyncLogger.
@@ -58,10 +59,12 @@ class AsyncLogger:
         :param name: Nome da aplicação/logger.
         :param queue_size: Tamanho máximo da fila de logs.
         :param level: Nível mínimo de log a processar.
+        :param log_file: Caminho para arquivo de log (opcional). Se fornecido, será truncado a cada start().
         """
         self.name = name
         self.queue_size = queue_size
         self.level = level
+        self.log_file = log_file
         
         # Fila thread-safe para enfileirar logs
         self._log_queue: queue.Queue = queue.Queue(maxsize=queue_size)
@@ -156,9 +159,10 @@ class AsyncLogger:
     
     def _setup_default_handlers(self) -> None:
         """
-        Configura handlers padrão (console).
+        Configura handlers padrão (console e arquivo opcionalmente).
         
         Estes handlers receberão logs processados pela worker thread.
+        Se log_file for fornecido, será truncado (limpado) a cada start().
         """
         # Console handler
         console_handler = logging.StreamHandler()
@@ -172,6 +176,34 @@ class AsyncLogger:
         
         self._real_handlers.append(console_handler)
         self._root_logger.addHandler(console_handler)
+        
+        # File handler (opcional)
+        if self.log_file:
+            try:
+                # mode='w' trunca (limpa) o arquivo a cada inicialização
+                file_handler = logging.FileHandler(
+                    self.log_file,
+                    mode='w',  # Trunca arquivo (limpa a cada nova execução)
+                    encoding='utf-8'
+                )
+                file_handler.setLevel(self.level)
+                file_handler.setFormatter(formatter)
+                
+                self._real_handlers.append(file_handler)
+                self._root_logger.addHandler(file_handler)
+            except Exception as e:
+                console_handler.emit(
+                    logging.LogRecord(
+                        name=self.name,
+                        level=logging.WARNING,
+                        pathname="",
+                        lineno=0,
+                        msg=f"Erro ao criar arquivo de log {self.log_file}: {e}",
+                        args=(),
+                        exc_info=None
+                    )
+                )
+
     
     def _log_worker(self) -> None:
         """
